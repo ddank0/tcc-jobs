@@ -1,10 +1,10 @@
 # tcc-jobs
 
-Camada de dados e IA do TCC — Sistema Inteligente para Licitações.
+Camada de dados e IA do TCC - Sistema Inteligente para Licitações.
 
 Python em lote: baixa os CSVs do Portal da Transparência, normaliza, carrega no
 PostgreSQL, treina os modelos de previsão e calcula scores de anomalia.
-Todos os resultados são materializados em tabelas — a API apenas lê.
+Todos os resultados são materializados em tabelas - a API apenas lê.
 
 **Dono do esquema do banco.** As migrations Alembic aqui são a única fonte de verdade.
 
