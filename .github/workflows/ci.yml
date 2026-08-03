@@ -53,6 +53,12 @@ jobs:
       - name: Análise estática (Pyright strict)
         run: uv run pyright
 
+      # alembic check compara o metadata com o estado real do banco, então as
+      # migrations precisam estar aplicadas. Localmente isso passa despercebido
+      # porque o banco de desenvolvimento já está migrado; no CI ele nasce vazio.
+      - name: Aplicar migrations
+        run: uv run alembic upgrade head
+
       # Detecta modelo SQLAlchemy alterado sem migration correspondente. Sem
       # isto, a divergência só apareceria na carga de dados.
       - name: Modelos e migrations em sincronia
