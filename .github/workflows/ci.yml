@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: tcc
+          POSTGRES_USER: tcc
+          POSTGRES_PASSWORD: tcc
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql+psycopg://tcc:tcc@localhost:5432/tcc
+      TEST_DATABASE_URL: postgresql+psycopg://tcc:tcc@localhost:5432/tcc_test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # O serviço do postgres cria apenas um banco. O script de init do
+      # compose não roda aqui, então o banco de teste é criado à mão.
+      - name: Criar banco de teste
+        run: PGPASSWORD=tcc psql -h localhost -U tcc -d tcc -c "CREATE DATABASE tcc_test;"
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Instalar dependências
+        run: uv sync --all-groups
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Formatação
+        run: uv run ruff format --check .
+
+      - name: Testes
+        run: uv run pytest -v --cov=src/tcc_jobs --cov-report=term-missing
