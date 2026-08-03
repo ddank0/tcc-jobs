@@ -53,6 +53,12 @@ jobs:
       - name: Análise estática (Pyright strict)
         run: uv run pyright
 
+      # Torna o RNF01 verificável: o núcleo funcional não pode importar
+      # infraestrutura. Sem isto, "arquitetura modular" depende de inspeção
+      # manual, o que é frágil de defender.
+      - name: Contratos de arquitetura
+        run: uv run lint-imports
+
       # alembic check compara o metadata com o estado real do banco, então as
       # migrations precisam estar aplicadas. Localmente isso passa despercebido
       # porque o banco de desenvolvimento já está migrado; no CI ele nasce vazio.

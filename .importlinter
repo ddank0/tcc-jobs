@@ -1,0 +1,41 @@
+# Contratos de arquitetura: Functional Core, Imperative Shell.
+#
+# O núcleo funcional são transformações puras - recebem dados, devolvem dados.
+# A casca imperativa faz I/O: HTTP, banco, disco, CLI.
+#
+# Estes contratos transformam o RNF01 ("arquitetura modular") de afirmação em
+# critério verificável: a violação quebra o build, em vez de depender de
+# inspeção manual.
+
+[importlinter]
+root_package = tcc_jobs
+
+# Os contratos crescem junto com o código: cada módulo novo do núcleo entra
+# aqui na mesma tarefa que o cria. Hoje cobrem o que existe.
+
+[importlinter:contract:camadas]
+name = A casca depende do núcleo, nunca o contrário
+type = layers
+layers =
+    tcc_jobs.cli
+    tcc_jobs.db
+    tcc_jobs.core
+exhaustive = false
+
+[importlinter:contract:core-e-independente]
+name = core não conhece infraestrutura
+type = forbidden
+source_modules =
+    tcc_jobs.core
+forbidden_modules =
+    tcc_jobs.db
+    tcc_jobs.cli
+
+[importlinter:contract:modelos-nao-conhecem-sessao]
+name = Modelos declaram esquema, não abrem conexão
+type = forbidden
+source_modules =
+    tcc_jobs.db.models
+forbidden_modules =
+    tcc_jobs.db.session
+    tcc_jobs.cli
