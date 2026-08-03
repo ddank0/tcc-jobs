@@ -1,10 +1,11 @@
 import pytest
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from tcc_jobs.db.models import Fornecedor, Orgao, UnidadeGestora
 
 
-def test_persiste_orgao(sessao):
+def test_persiste_orgao(sessao: Session) -> None:
     sessao.add(Orgao(codigo_orgao="22000", nome="Ministério da Agricultura e Pecuária"))
     sessao.commit()
 
@@ -13,7 +14,7 @@ def test_persiste_orgao(sessao):
     assert orgao.nome == "Ministério da Agricultura e Pecuária"
 
 
-def test_unidade_gestora_referencia_orgao(sessao):
+def test_unidade_gestora_referencia_orgao(sessao: Session) -> None:
     sessao.add(Orgao(codigo_orgao="22000", nome="Ministério da Agricultura e Pecuária"))
     sessao.add(
         UnidadeGestora(
@@ -29,14 +30,16 @@ def test_unidade_gestora_referencia_orgao(sessao):
     assert ug.codigo_orgao == "22000"
 
 
-def test_unidade_gestora_sem_orgao_falha(sessao):
+def test_unidade_gestora_sem_orgao_falha(sessao: Session) -> None:
     sessao.add(UnidadeGestora(codigo_ug="130094", nome="SFA/PA", codigo_orgao="99999"))
     with pytest.raises(IntegrityError):
         sessao.commit()
 
 
-def test_fornecedor_usa_cnpj_como_chave(sessao):
+def test_fornecedor_usa_cnpj_como_chave(sessao: Session) -> None:
     sessao.add(Fornecedor(cnpj="14986916000177", nome="CORDEL AUTOMACAO & SERVICOS LTDA"))
     sessao.commit()
 
-    assert sessao.get(Fornecedor, "14986916000177").nome == "CORDEL AUTOMACAO & SERVICOS LTDA"
+    fornecedor = sessao.get(Fornecedor, "14986916000177")
+    assert fornecedor is not None
+    assert fornecedor.nome == "CORDEL AUTOMACAO & SERVICOS LTDA"

@@ -1,10 +1,12 @@
 from datetime import datetime
 from decimal import Decimal
 
+from sqlalchemy.orm import Session
+
 from tcc_jobs.db.models import ExecucaoModelo, IngestaoLog, Previsao, SerieMensal
 
 
-def test_registra_log_de_ingestao(sessao):
+def test_registra_log_de_ingestao(sessao: Session) -> None:
     sessao.add(
         IngestaoLog(
             competencia="202401",
@@ -25,7 +27,7 @@ def test_registra_log_de_ingestao(sessao):
     assert log.status == "sucesso"
 
 
-def test_serie_mensal_agrega_por_orgao_e_modalidade(sessao):
+def test_serie_mensal_agrega_por_orgao_e_modalidade(sessao: Session) -> None:
     sessao.add(
         SerieMensal(
             competencia="202401",
@@ -41,7 +43,7 @@ def test_serie_mensal_agrega_por_orgao_e_modalidade(sessao):
     assert sessao.query(SerieMensal).one().quantidade_licitacoes == 120
 
 
-def test_previsao_referencia_execucao_e_guarda_intervalo(sessao):
+def test_previsao_referencia_execucao_e_guarda_intervalo(sessao: Session) -> None:
     execucao = ExecucaoModelo(
         tipo="forecast",
         algoritmo="AutoARIMA",
@@ -69,5 +71,11 @@ def test_previsao_referencia_execucao_e_guarda_intervalo(sessao):
 
     prev = sessao.query(Previsao).one()
     assert prev.serie_chave == "orgao:22000"
+
+    assert prev.ic_inferior is not None
+    assert prev.ic_superior is not None
     assert prev.ic_inferior < prev.valor_previsto < prev.ic_superior
-    assert sessao.get(ExecucaoModelo, prev.execucao_id).metricas_json["mae"] == 12.5
+
+    execucao_persistida = sessao.get(ExecucaoModelo, prev.execucao_id)
+    assert execucao_persistida is not None
+    assert execucao_persistida.metricas_json["mae"] == 12.5

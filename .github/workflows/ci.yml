@@ -48,6 +48,11 @@ jobs:
       - name: Formatação
         run: uv run ruff format --check .
 
+      # ruff faz lint, não checagem de tipos. mypy --strict é o equivalente
+      # ao PHPStan nível 10 no lado Python.
+      - name: Análise estática (mypy strict)
+        run: uv run mypy
+
       - name: Testes
         run: uv run pytest -v --cov=src/tcc_jobs --cov-report=term-missing
 

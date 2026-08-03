@@ -1,8 +1,10 @@
 from datetime import date
 from decimal import Decimal
+from typing import Any
 
 import pytest
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from tcc_jobs.db.models import (
     Fornecedor,
@@ -15,7 +17,7 @@ from tcc_jobs.db.models import (
 
 
 @pytest.fixture
-def base_minima(sessao):
+def base_minima(sessao: Session) -> Session:
     sessao.add(Orgao(codigo_orgao="22000", nome="Ministério da Agricultura e Pecuária"))
     sessao.add(UnidadeGestora(codigo_ug="130094", nome="SFA/PA", codigo_orgao="22000"))
     sessao.add(Fornecedor(cnpj="14986916000177", nome="CORDEL AUTOMACAO & SERVICOS LTDA"))
@@ -23,7 +25,7 @@ def base_minima(sessao):
     return sessao
 
 
-def nova_licitacao(**kwargs) -> Licitacao:
+def nova_licitacao(**kwargs: Any) -> Licitacao:
     padrao = dict(
         numero_licitacao="000012023",
         codigo_ug="130094",
@@ -42,7 +44,7 @@ def nova_licitacao(**kwargs) -> Licitacao:
     return Licitacao(**{**padrao, **kwargs})
 
 
-def test_persiste_licitacao(base_minima):
+def test_persiste_licitacao(base_minima: Session) -> None:
     base_minima.add(nova_licitacao())
     base_minima.commit()
 
@@ -52,7 +54,7 @@ def test_persiste_licitacao(base_minima):
     assert lic.data_abertura == date(2023, 12, 26)
 
 
-def test_chave_natural_impede_duplicata(base_minima):
+def test_chave_natural_impede_duplicata(base_minima: Session) -> None:
     base_minima.add(nova_licitacao())
     base_minima.commit()
 
@@ -61,7 +63,7 @@ def test_chave_natural_impede_duplicata(base_minima):
         base_minima.commit()
 
 
-def test_mesma_ug_e_numero_com_modalidade_diferente_coexistem(base_minima):
+def test_mesma_ug_e_numero_com_modalidade_diferente_coexistem(base_minima: Session) -> None:
     base_minima.add(nova_licitacao())
     base_minima.add(nova_licitacao(codigo_modalidade=8, modalidade="Dispensa"))
     base_minima.commit()
@@ -69,7 +71,7 @@ def test_mesma_ug_e_numero_com_modalidade_diferente_coexistem(base_minima):
     assert base_minima.query(Licitacao).count() == 2
 
 
-def test_item_e_participante_referenciam_licitacao(base_minima):
+def test_item_e_participante_referenciam_licitacao(base_minima: Session) -> None:
     lic = nova_licitacao()
     base_minima.add(lic)
     base_minima.commit()
