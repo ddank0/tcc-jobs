@@ -1,8 +1,8 @@
-"""esquema inicial
+"""esquema inicial normalizado
 
-Revision ID: cfaa5e5321f2
+Revision ID: ccf99514a856
 Revises:
-Create Date: 2026-08-03 11:26:10.633871
+Create Date: 2026-08-03 20:12:10.082307
 
 """
 
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "cfaa5e5321f2"
+revision: str = "ccf99514a856"
 down_revision: str | Sequence[str] | None = None
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
@@ -31,14 +31,14 @@ def upgrade() -> None:
         sa.Column("janela_treino_inicio", sa.String(length=6), nullable=True),
         sa.Column("janela_treino_fim", sa.String(length=6), nullable=True),
         sa.Column("executado_em", sa.DateTime(), nullable=False),
-        sa.PrimaryKeyConstraint("id"),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_execucao_modelo")),
     )
     op.create_index(op.f("ix_execucao_modelo_tipo"), "execucao_modelo", ["tipo"], unique=False)
     op.create_table(
         "fornecedor",
         sa.Column("cnpj", sa.String(length=14), nullable=False),
         sa.Column("nome", sa.String(length=255), nullable=False),
-        sa.PrimaryKeyConstraint("cnpj"),
+        sa.PrimaryKeyConstraint("cnpj", name=op.f("pk_fornecedor")),
     )
     op.create_table(
         "ingestao_log",
@@ -53,18 +53,33 @@ def upgrade() -> None:
         sa.Column("finalizado_em", sa.DateTime(), nullable=True),
         sa.Column("status", sa.String(length=20), nullable=False),
         sa.Column("mensagem_erro", sa.Text(), nullable=True),
-        sa.PrimaryKeyConstraint("id"),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_ingestao_log")),
     )
     op.create_index(
         op.f("ix_ingestao_log_competencia"), "ingestao_log", ["competencia"], unique=False
+    )
+    op.create_table(
+        "modalidade",
+        sa.Column("codigo", sa.Integer(), nullable=False),
+        sa.Column("nome", sa.String(length=100), nullable=False),
+        sa.PrimaryKeyConstraint("codigo", name=op.f("pk_modalidade")),
     )
     op.create_table(
         "orgao",
         sa.Column("codigo_orgao", sa.String(length=10), nullable=False),
         sa.Column("nome", sa.String(length=255), nullable=False),
         sa.Column("codigo_orgao_superior", sa.String(length=10), nullable=True),
-        sa.Column("nome_orgao_superior", sa.String(length=255), nullable=True),
-        sa.PrimaryKeyConstraint("codigo_orgao"),
+        sa.ForeignKeyConstraint(
+            ["codigo_orgao_superior"],
+            ["orgao.codigo_orgao"],
+            name=op.f("fk_orgao_codigo_orgao_superior_orgao"),
+            initially="DEFERRED",
+            deferrable=True,
+        ),
+        sa.PrimaryKeyConstraint("codigo_orgao", name=op.f("pk_orgao")),
+    )
+    op.create_index(
+        op.f("ix_orgao_codigo_orgao_superior"), "orgao", ["codigo_orgao_superior"], unique=False
     )
     op.create_table(
         "serie_mensal",
@@ -75,7 +90,7 @@ def upgrade() -> None:
         sa.Column("quantidade_licitacoes", sa.Integer(), nullable=False),
         sa.Column("valor_total", sa.Numeric(precision=18, scale=4), nullable=True),
         sa.Column("valor_mediano", sa.Numeric(precision=18, scale=4), nullable=True),
-        sa.PrimaryKeyConstraint("id"),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_serie_mensal")),
     )
     op.create_index(
         op.f("ix_serie_mensal_codigo_orgao"), "serie_mensal", ["codigo_orgao"], unique=False
@@ -93,8 +108,13 @@ def upgrade() -> None:
         sa.Column("valor_previsto", sa.Numeric(precision=18, scale=4), nullable=False),
         sa.Column("ic_inferior", sa.Numeric(precision=18, scale=4), nullable=True),
         sa.Column("ic_superior", sa.Numeric(precision=18, scale=4), nullable=True),
-        sa.ForeignKeyConstraint(["execucao_id"], ["execucao_modelo.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("id"),
+        sa.ForeignKeyConstraint(
+            ["execucao_id"],
+            ["execucao_modelo.id"],
+            name=op.f("fk_previsao_execucao_id_execucao_modelo"),
+            ondelete="CASCADE",
+        ),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_previsao")),
     )
     op.create_index(
         op.f("ix_previsao_competencia_alvo"), "previsao", ["competencia_alvo"], unique=False
@@ -105,37 +125,44 @@ def upgrade() -> None:
         "unidade_gestora",
         sa.Column("codigo_ug", sa.String(length=10), nullable=False),
         sa.Column("nome", sa.String(length=255), nullable=False),
+        sa.Column("uf", sa.String(length=2), nullable=True),
+        sa.Column("municipio", sa.String(length=100), nullable=True),
         sa.Column("codigo_orgao", sa.String(length=10), nullable=False),
         sa.ForeignKeyConstraint(
             ["codigo_orgao"],
             ["orgao.codigo_orgao"],
+            name=op.f("fk_unidade_gestora_codigo_orgao_orgao"),
         ),
-        sa.PrimaryKeyConstraint("codigo_ug"),
+        sa.PrimaryKeyConstraint("codigo_ug", name=op.f("pk_unidade_gestora")),
     )
     op.create_index(
         op.f("ix_unidade_gestora_codigo_orgao"), "unidade_gestora", ["codigo_orgao"], unique=False
     )
+    op.create_index(op.f("ix_unidade_gestora_uf"), "unidade_gestora", ["uf"], unique=False)
     op.create_table(
         "licitacao",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column("numero_licitacao", sa.String(length=20), nullable=False),
         sa.Column("codigo_ug", sa.String(length=10), nullable=False),
         sa.Column("codigo_modalidade", sa.Integer(), nullable=False),
-        sa.Column("modalidade", sa.String(length=100), nullable=False),
         sa.Column("numero_processo", sa.String(length=50), nullable=True),
         sa.Column("objeto", sa.Text(), nullable=True),
         sa.Column("situacao", sa.String(length=100), nullable=True),
-        sa.Column("uf", sa.String(length=2), nullable=True),
-        sa.Column("municipio", sa.String(length=100), nullable=True),
         sa.Column("data_abertura", sa.Date(), nullable=True),
         sa.Column("data_resultado", sa.Date(), nullable=True),
         sa.Column("valor", sa.Numeric(precision=18, scale=4), nullable=True),
         sa.Column("competencia", sa.String(length=6), nullable=False),
         sa.ForeignKeyConstraint(
+            ["codigo_modalidade"],
+            ["modalidade.codigo"],
+            name=op.f("fk_licitacao_codigo_modalidade_modalidade"),
+        ),
+        sa.ForeignKeyConstraint(
             ["codigo_ug"],
             ["unidade_gestora.codigo_ug"],
+            name=op.f("fk_licitacao_codigo_ug_unidade_gestora"),
         ),
-        sa.PrimaryKeyConstraint("id"),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_licitacao")),
         sa.UniqueConstraint(
             "numero_licitacao", "codigo_ug", "codigo_modalidade", name="uq_licitacao_chave_natural"
         ),
@@ -159,9 +186,15 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["cnpj_vencedor"],
             ["fornecedor.cnpj"],
+            name=op.f("fk_item_licitacao_cnpj_vencedor_fornecedor"),
         ),
-        sa.ForeignKeyConstraint(["licitacao_id"], ["licitacao.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("id"),
+        sa.ForeignKeyConstraint(
+            ["licitacao_id"],
+            ["licitacao.id"],
+            name=op.f("fk_item_licitacao_licitacao_id_licitacao"),
+            ondelete="CASCADE",
+        ),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_item_licitacao")),
     )
     op.create_index(
         op.f("ix_item_licitacao_codigo_item_compra"),
@@ -182,9 +215,15 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["cnpj_participante"],
             ["fornecedor.cnpj"],
+            name=op.f("fk_participante_licitacao_cnpj_participante_fornecedor"),
         ),
-        sa.ForeignKeyConstraint(["licitacao_id"], ["licitacao.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("id"),
+        sa.ForeignKeyConstraint(
+            ["licitacao_id"],
+            ["licitacao.id"],
+            name=op.f("fk_participante_licitacao_licitacao_id_licitacao"),
+            ondelete="CASCADE",
+        ),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_participante_licitacao")),
     )
     op.create_index(
         op.f("ix_participante_licitacao_cnpj_participante"),
@@ -206,9 +245,19 @@ def upgrade() -> None:
         sa.Column("score", sa.Numeric(precision=12, scale=6), nullable=False),
         sa.Column("posicao_ranking", sa.Integer(), nullable=True),
         sa.Column("features_json", sa.JSON(), nullable=False),
-        sa.ForeignKeyConstraint(["execucao_id"], ["execucao_modelo.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["licitacao_id"], ["licitacao.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("id"),
+        sa.ForeignKeyConstraint(
+            ["execucao_id"],
+            ["execucao_modelo.id"],
+            name=op.f("fk_score_anomalia_execucao_id_execucao_modelo"),
+            ondelete="CASCADE",
+        ),
+        sa.ForeignKeyConstraint(
+            ["licitacao_id"],
+            ["licitacao.id"],
+            name=op.f("fk_score_anomalia_licitacao_id_licitacao"),
+            ondelete="CASCADE",
+        ),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_score_anomalia")),
     )
     op.create_index(
         op.f("ix_score_anomalia_execucao_id"), "score_anomalia", ["execucao_id"], unique=False
@@ -241,6 +290,7 @@ def downgrade() -> None:
     op.drop_index(op.f("ix_licitacao_competencia"), table_name="licitacao")
     op.drop_index(op.f("ix_licitacao_codigo_modalidade"), table_name="licitacao")
     op.drop_table("licitacao")
+    op.drop_index(op.f("ix_unidade_gestora_uf"), table_name="unidade_gestora")
     op.drop_index(op.f("ix_unidade_gestora_codigo_orgao"), table_name="unidade_gestora")
     op.drop_table("unidade_gestora")
     op.drop_index(op.f("ix_previsao_serie_chave"), table_name="previsao")
@@ -250,7 +300,9 @@ def downgrade() -> None:
     op.drop_index(op.f("ix_serie_mensal_competencia"), table_name="serie_mensal")
     op.drop_index(op.f("ix_serie_mensal_codigo_orgao"), table_name="serie_mensal")
     op.drop_table("serie_mensal")
+    op.drop_index(op.f("ix_orgao_codigo_orgao_superior"), table_name="orgao")
     op.drop_table("orgao")
+    op.drop_table("modalidade")
     op.drop_index(op.f("ix_ingestao_log_competencia"), table_name="ingestao_log")
     op.drop_table("ingestao_log")
     op.drop_table("fornecedor")

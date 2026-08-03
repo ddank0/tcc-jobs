@@ -10,6 +10,7 @@ from tcc_jobs.db.models import (
     Fornecedor,
     ItemLicitacao,
     Licitacao,
+    Modalidade,
     Orgao,
     ParticipanteLicitacao,
     UnidadeGestora,
@@ -19,7 +20,13 @@ from tcc_jobs.db.models import (
 @pytest.fixture
 def base_minima(sessao: Session) -> Session:
     sessao.add(Orgao(codigo_orgao="22000", nome="Ministério da Agricultura e Pecuária"))
-    sessao.add(UnidadeGestora(codigo_ug="130094", nome="SFA/PA", codigo_orgao="22000"))
+    sessao.add(
+        UnidadeGestora(
+            codigo_ug="130094", nome="SFA/PA", uf="PA", municipio="BELEM", codigo_orgao="22000"
+        )
+    )
+    sessao.add(Modalidade(codigo=5, nome="Pregão"))
+    sessao.add(Modalidade(codigo=8, nome="Dispensa"))
     sessao.add(Fornecedor(cnpj="14986916000177", nome="CORDEL AUTOMACAO & SERVICOS LTDA"))
     sessao.commit()
     return sessao
@@ -30,12 +37,9 @@ def nova_licitacao(**kwargs: Any) -> Licitacao:
         numero_licitacao="000012023",
         codigo_ug="130094",
         codigo_modalidade=5,
-        modalidade="Pregão",
         numero_processo="21030.002858/2023",
         objeto="Contratação de empresa de engenharia",
         situacao="Evento de Adiamento Publicado",
-        uf="PA",
-        municipio="BELEM",
         data_abertura=date(2023, 12, 26),
         data_resultado=date(2024, 1, 17),
         valor=Decimal("170612.0000"),
@@ -65,7 +69,7 @@ def test_chave_natural_impede_duplicata(base_minima: Session) -> None:
 
 def test_mesma_ug_e_numero_com_modalidade_diferente_coexistem(base_minima: Session) -> None:
     base_minima.add(nova_licitacao())
-    base_minima.add(nova_licitacao(codigo_modalidade=8, modalidade="Dispensa"))
+    base_minima.add(nova_licitacao(codigo_modalidade=8))
     base_minima.commit()
 
     assert base_minima.query(Licitacao).count() == 2

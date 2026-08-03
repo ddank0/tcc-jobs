@@ -7,6 +7,7 @@ from tcc_jobs.core.config import settings
 
 TABELAS_ESPERADAS = {
     "orgao",
+    "modalidade",
     "unidade_gestora",
     "fornecedor",
     "licitacao",
@@ -73,3 +74,32 @@ def test_downgrade_remove_tudo(banco_limpo: Engine) -> None:
 
     tabelas = set(inspect(banco_limpo).get_table_names())
     assert not (TABELAS_ESPERADAS & tabelas)
+
+
+def test_constraints_tem_nome(banco_limpo: Engine) -> None:
+    """Constraint anônima impede o downgrade: o DROP CONSTRAINT precisa de nome.
+
+    Sem convenção de nomes no metadata, o autogenerate cria FKs sem nome e a
+    migration deixa de ser reversível.
+    """
+    command.upgrade(_config(), "head")
+
+    insp = inspect(banco_limpo)
+    for tabela in TABELAS_ESPERADAS:
+        for fk in insp.get_foreign_keys(tabela):
+            assert fk["name"], f"FK sem nome em {tabela}"
+
+
+def test_modalidade_e_referenciada_por_licitacao(banco_limpo: Engine) -> None:
+    command.upgrade(_config(), "head")
+
+    fks = inspect(banco_limpo).get_foreign_keys("licitacao")
+    referidas = {fk["referred_table"] for fk in fks}
+    assert "modalidade" in referidas
+
+
+def test_hierarquia_de_orgao_e_auto_referencia(banco_limpo: Engine) -> None:
+    command.upgrade(_config(), "head")
+
+    fks = inspect(banco_limpo).get_foreign_keys("orgao")
+    assert any(fk["referred_table"] == "orgao" for fk in fks)

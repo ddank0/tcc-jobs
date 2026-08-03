@@ -5,7 +5,6 @@ from sqlalchemy import (
     Boolean,
     Date,
     ForeignKey,
-    Integer,
     Numeric,
     String,
     Text,
@@ -22,6 +21,10 @@ class Licitacao(Base):
     A chave natural (numero_licitacao, codigo_ug, codigo_modalidade) é o que
     relaciona os três CSVs de origem entre si e o que torna a ingestão
     idempotente: a mesma competência pode ser reprocessada sem duplicar.
+
+    Não guarda nome de modalidade nem localização: ambos eram dependências
+    transitivas e foram para as dimensões correspondentes. Ver
+    [[Licitações - Decisões de Modelagem]].
     """
 
     __tablename__ = "licitacao"
@@ -38,14 +41,13 @@ class Licitacao(Base):
 
     numero_licitacao: Mapped[str] = mapped_column(String(20))
     codigo_ug: Mapped[str] = mapped_column(ForeignKey("unidade_gestora.codigo_ug"))
-    codigo_modalidade: Mapped[int] = mapped_column(Integer, index=True)
+    codigo_modalidade: Mapped[int] = mapped_column(
+        ForeignKey("modalidade.codigo"), index=True
+    )
 
-    modalidade: Mapped[str] = mapped_column(String(100))
     numero_processo: Mapped[str | None] = mapped_column(String(50))
     objeto: Mapped[str | None] = mapped_column(Text)
     situacao: Mapped[str | None] = mapped_column(String(100))
-    uf: Mapped[str | None] = mapped_column(String(2))
-    municipio: Mapped[str | None] = mapped_column(String(100))
 
     data_abertura: Mapped[date | None] = mapped_column(Date, index=True)
     data_resultado: Mapped[date | None] = mapped_column(Date)
