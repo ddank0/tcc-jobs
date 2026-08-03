@@ -41,9 +41,7 @@ class Licitacao(Base):
 
     numero_licitacao: Mapped[str] = mapped_column(String(20))
     codigo_ug: Mapped[str] = mapped_column(ForeignKey("unidade_gestora.codigo_ug"))
-    codigo_modalidade: Mapped[int] = mapped_column(
-        ForeignKey("modalidade.codigo"), index=True
-    )
+    codigo_modalidade: Mapped[int] = mapped_column(ForeignKey("modalidade.codigo"), index=True)
 
     numero_processo: Mapped[str | None] = mapped_column(String(50))
     objeto: Mapped[str | None] = mapped_column(Text)
