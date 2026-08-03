@@ -9,6 +9,17 @@ ENV UV_LINK_MODE=copy \
     UV_PROJECT_ENVIRONMENT=/opt/venv \
     PATH="/opt/venv/bin:$PATH"
 
+# Usuário com o mesmo UID do host. Sem isso, todo arquivo gerado dentro do
+# container - migration do autogenerate, cache do pytest - nasce como root
+# na pasta do host, e o editor não consegue mais alterá-lo.
+ARG UID=1000
+ARG GID=1000
+RUN groupadd -g "$GID" app 2>/dev/null || true \
+    && useradd -u "$UID" -g "$GID" -m -s /bin/bash app 2>/dev/null || true \
+    && mkdir -p /opt/venv /app \
+    && chown -R "$UID:$GID" /opt/venv /app
+
+USER app
 WORKDIR /app
 CMD ["sleep", "infinity"]
 
