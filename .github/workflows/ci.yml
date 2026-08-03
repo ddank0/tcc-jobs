@@ -50,3 +50,14 @@ jobs:
 
       - name: Testes
         run: uv run pytest -v --cov=src/tcc_jobs --cov-report=term-missing
+
+  # O compose de desenvolvimento nunca exercita o estágio prod. Sem este job,
+  # um Dockerfile quebrado só apareceria na hora do deploy.
+  build-prod:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build do estágio de produção
+        run: docker build --target prod -t tcc-jobs:prod .
+      - name: Confirmar que a CLI responde
+        run: docker run --rm tcc-jobs:prod --help | grep -q ingest
