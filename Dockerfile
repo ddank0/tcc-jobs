@@ -1,5 +1,5 @@
 # --- desenvolvimento: sem código embutido, chega por bind mount ---
-FROM python:3.12-slim AS dev
+FROM python:3.14-slim AS dev
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
@@ -31,7 +31,7 @@ WORKDIR /app
 CMD ["sleep", "infinity"]
 
 # --- produção: código embutido, sem dependências de desenvolvimento ---
-FROM python:3.12-slim AS prod
+FROM python:3.14-slim AS prod
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 

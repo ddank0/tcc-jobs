@@ -2,7 +2,7 @@
 name = "tcc-jobs"
 version = "0.1.0"
 description = "ETL, features e modelos do TCC de licitações"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 dependencies = [
     "sqlalchemy>=2.0",
     "alembic>=1.13",
@@ -31,7 +31,7 @@ packages = ["src/tcc_jobs"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py312"
+target-version = "py314"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
@@ -42,7 +42,7 @@ testpaths = ["tests"]
 
 [tool.pyright]
 include = ["src", "tests"]
-pythonVersion = "3.12"
+pythonVersion = "3.14"
 # strict é o nível máximo do Pyright. O SQLAlchemy 2.0 tem tipagem nativa
 # (PEP 484), então dispensa plugin - ao contrário do mypy.
 typeCheckingMode = "strict"
