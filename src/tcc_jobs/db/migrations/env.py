@@ -4,7 +4,7 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from tcc_jobs.core.config import settings
-from tcc_jobs.db import models  # noqa: F401  - registra as tabelas no metadata
+from tcc_jobs.db import models
 from tcc_jobs.db.base import Base
 
 config = context.config
@@ -19,8 +19,12 @@ if not config.get_main_option("sqlalchemy.url", None):
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# O import de models acima parece não usado, e o linter marcaria. Sem ele o
-# metadata fica vazio e o autogenerate produz uma migration que não cria nada.
+# O import de models não é usado diretamente, mas é o que registra as tabelas
+# no metadata. Sem ele, o autogenerate produz uma migration que não cria nada.
+# A atribuição torna a dependência explícita para o linter e o type checker,
+# em vez de exigir uma supressão para cada ferramenta.
+_ = models
+
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,

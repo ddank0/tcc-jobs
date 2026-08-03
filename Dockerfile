@@ -3,6 +3,13 @@ FROM python:3.12-slim AS dev
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
+# O Pyright baixa o próprio Node, que precisa de libatomic - ausente na
+# imagem slim. Sem isso ele falha com "libatomic.so.1: cannot open shared
+# object file", mensagem que não sugere a solução.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libatomic1 \
+    && rm -rf /var/lib/apt/lists/*
+
 # O ambiente virtual fica fora de /app: com bind mount, um .venv em /app
 # seria escrito na pasta do host, misturando binários do container com o WSL.
 ENV UV_LINK_MODE=copy \

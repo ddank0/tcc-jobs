@@ -48,10 +48,15 @@ jobs:
       - name: Formatação
         run: uv run ruff format --check .
 
-      # ruff faz lint, não checagem de tipos. mypy --strict é o equivalente
-      # ao PHPStan nível 10 no lado Python.
-      - name: Análise estática (mypy strict)
-        run: uv run mypy
+      # ruff faz lint, não checagem de tipos. Pyright em modo strict é o
+      # equivalente ao PHPStan nível 10 no lado Python.
+      - name: Análise estática (Pyright strict)
+        run: uv run pyright
+
+      # Detecta modelo SQLAlchemy alterado sem migration correspondente. Sem
+      # isto, a divergência só apareceria na carga de dados.
+      - name: Modelos e migrations em sincronia
+        run: uv run alembic check
 
       - name: Testes
         run: uv run pytest -v --cov=src/tcc_jobs --cov-report=term-missing
