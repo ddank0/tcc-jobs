@@ -27,13 +27,13 @@ class Competencia:
     def __str__(self) -> str:
         return f"{self.ano:04d}{self.mes:02d}"
 
-    def proxima(self) -> "Competencia":
+    def proxima(self) -> Competencia:
         if self.mes == 12:
             return Competencia(self.ano + 1, 1)
         return Competencia(self.ano, self.mes + 1)
 
     @staticmethod
-    def intervalo(de: "Competencia", ate: "Competencia") -> list["Competencia"]:
+    def intervalo(de: Competencia, ate: Competencia) -> list[Competencia]:
         if de > ate:
             raise ValueError(f"intervalo invertido: {de} é posterior a {ate}")
         janela = [de]

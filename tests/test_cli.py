@@ -1,4 +1,3 @@
-import pytest
 from typer.testing import CliRunner
 
 from tcc_jobs.cli import app
