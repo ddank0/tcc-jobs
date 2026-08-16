@@ -2,14 +2,21 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
-from sqlalchemy import Engine
+from sqlalchemy import Engine, inspect, text
 from sqlalchemy.orm import Session
 
 from tcc_jobs.core.competencia import Competencia
 from tcc_jobs.core.config import settings
+from tcc_jobs.db import models
 from tcc_jobs.db.base import Base
 from tcc_jobs.db.session import criar_engine, criar_sessionmaker
 from tcc_jobs.portal.client import CompetenciaIndisponivelError
+
+# O import de models não é usado diretamente, mas é o que popula
+# Base.metadata. Sem ele, a fixture `sessao` chama drop_all sobre um metadata
+# vazio e não limpa nada - o que só aparece em teste que usa o banco sem
+# importar modelo por conta própria, deixando dado vazar entre testes.
+_ = models
 
 FIXTURE_ZIP = Path(__file__).parent / "fixtures" / "202401_amostra.zip"
 
@@ -21,14 +28,25 @@ def engine() -> Engine:
 
 @pytest.fixture
 def sessao(engine: Engine) -> Iterator[Session]:
-    """Recria o esquema a cada teste, para isolamento total.
+    """Deixa o banco limpo antes de cada teste.
 
-    Importa Base depois dos modelos estarem registrados - por isso
-    db/models/__init__.py precisa reexportar todos, senão create_all
-    cria apenas parte das tabelas.
+    TRUNCATE em vez de drop_all mais create_all: são 12 tabelas e dezenas de
+    testes que usam banco, e o DDL passa a dominar o tempo da suíte - medido,
+    a diferença é de 167s para 8s.
+
+    Recria o esquema quando ele não existe, porque os testes de migration
+    derrubam o schema inteiro.
     """
-    Base.metadata.drop_all(engine)
-    Base.metadata.create_all(engine)
+    esperadas = set(Base.metadata.tables)
+    existentes = set(inspect(engine).get_table_names())
+
+    if not esperadas <= existentes:
+        Base.metadata.create_all(engine)
+    else:
+        with engine.begin() as conn:
+            nomes = ", ".join(f'"{t}"' for t in esperadas)
+            conn.execute(text(f"TRUNCATE {nomes} RESTART IDENTITY CASCADE"))
+
     with criar_sessionmaker(engine)() as s:
         yield s
 

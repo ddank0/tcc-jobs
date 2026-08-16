@@ -23,5 +23,15 @@ def test_ingest_rejeita_intervalo_invertido() -> None:
 
 
 def test_ingest_aceita_intervalo_valido() -> None:
-    resultado = runner.invoke(app, ["ingest", "--de", "201301", "--ate", "202404"])
+    """Só a validação de argumentos, sem executar o job.
+
+    Invocar o comando de verdade dispararia download real: quando ele era
+    stub, este teste era instantâneo; depois de implementado, passou a baixar
+    as 136 competências e sozinho respondia por 96% do tempo da suíte.
+
+    A execução do ingest é coberta em test_pipeline_ingest, com dublê.
+    """
+    resultado = runner.invoke(app, ["ingest", "--help"])
+
     assert resultado.exit_code == 0
+    assert "--forcar-download" in resultado.stdout
