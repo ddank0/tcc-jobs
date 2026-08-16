@@ -18,7 +18,7 @@ name = A casca depende do núcleo, nunca o contrário
 type = layers
 layers =
     tcc_jobs.cli
-    tcc_jobs.db
+    tcc_jobs.db | tcc_jobs.portal
     tcc_jobs.core
 exhaustive = false
 
@@ -29,6 +29,7 @@ source_modules =
     tcc_jobs.core
 forbidden_modules =
     tcc_jobs.db
+    tcc_jobs.portal
     tcc_jobs.cli
 
 [importlinter:contract:modelos-nao-conhecem-sessao]
@@ -39,3 +40,11 @@ source_modules =
 forbidden_modules =
     tcc_jobs.db.session
     tcc_jobs.cli
+
+[importlinter:contract:portal-nao-conhece-banco]
+name = O cliente da fonte não conhece persistência
+type = forbidden
+source_modules =
+    tcc_jobs.portal
+forbidden_modules =
+    tcc_jobs.db
