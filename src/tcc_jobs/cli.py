@@ -53,8 +53,27 @@ def load(
     ate: str = typer.Option(..., help="Competência final, AAAAMM"),
 ) -> None:
     """Carrega silver no PostgreSQL via COPY."""
+    from tcc_jobs.core.config import settings
+    from tcc_jobs.db.carga import carregar
+    from tcc_jobs.db.session import criar_engine
+    from tcc_jobs.etl.armazenamento import Armazenamento
+
     competencias = _intervalo(de, ate)
-    typer.echo(f"load {competencias[0]}..{competencias[-1]} - ainda não implementado")
+    resultados = carregar(
+        competencias,
+        Armazenamento(settings.data_dir),
+        criar_engine(settings.database_url),
+    )
+
+    com_erro = [r for r in resultados if r.erro]
+    total = sum(r.inseridas.get("licitacao", 0) for r in resultados)
+
+    typer.echo(
+        f"{len(resultados) - len(com_erro)}/{len(resultados)} competências, "
+        f"{total} licitações carregadas"
+    )
+    for r in com_erro:
+        typer.echo(f"  {r.competencia}: {r.erro}", err=True)
 
 
 @app.command()
