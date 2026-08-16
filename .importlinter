@@ -50,10 +50,11 @@ forbidden_modules =
     tcc_jobs.db
 
 [importlinter:contract:nucleo-etl-e-puro]
-name = Parsers não fazem I/O
+name = Parsers e armazenamento não conhecem banco nem rede
 type = forbidden
 source_modules =
     tcc_jobs.etl.parsers
+    tcc_jobs.etl.armazenamento
 forbidden_modules =
     tcc_jobs.db
     tcc_jobs.portal
