@@ -79,7 +79,12 @@ def load(
 @app.command()
 def aggregate() -> None:
     """Monta serie_mensal e a matriz de atributos."""
-    typer.echo("aggregate - ainda não implementado")
+    from tcc_jobs.core.config import settings
+    from tcc_jobs.db.agregacao_carga import agregar
+    from tcc_jobs.db.session import criar_engine
+
+    total = agregar(criar_engine(settings.database_url))
+    typer.echo(f"serie_mensal: {total} linhas")
 
 
 @app.command()
