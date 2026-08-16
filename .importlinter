@@ -48,3 +48,13 @@ source_modules =
     tcc_jobs.portal
 forbidden_modules =
     tcc_jobs.db
+
+[importlinter:contract:nucleo-etl-e-puro]
+name = Parsers não fazem I/O
+type = forbidden
+source_modules =
+    tcc_jobs.etl.parsers
+forbidden_modules =
+    tcc_jobs.db
+    tcc_jobs.portal
+    tcc_jobs.cli
