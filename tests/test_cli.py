@@ -1,7 +1,7 @@
 import pytest
 from typer.testing import CliRunner
 
-from tcc_jobs.cli import app, validar_competencia
+from tcc_jobs.cli import app
 
 runner = CliRunner()
 
@@ -11,17 +11,6 @@ def test_ajuda_lista_os_cinco_comandos() -> None:
     assert resultado.exit_code == 0
     for comando in ("ingest", "load", "aggregate", "train", "score"):
         assert comando in resultado.stdout
-
-
-@pytest.mark.parametrize("valor", ["201301", "202404", "199912"])
-def test_competencia_valida(valor: str) -> None:
-    assert validar_competencia(valor) == valor
-
-
-@pytest.mark.parametrize("valor", ["2013", "20130", "2013-01", "201313", "201300", "abcdef"])
-def test_competencia_invalida(valor: str) -> None:
-    with pytest.raises(ValueError, match="competência"):
-        validar_competencia(valor)
 
 
 def test_ingest_rejeita_competencia_malformada() -> None:
