@@ -10,12 +10,14 @@ INSERT ... ON CONFLICT a partir dela.
 
 import logging
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 
 import polars as pl
 from sqlalchemy import Connection, Engine, text
 
 from tcc_jobs.core.competencia import Competencia
 from tcc_jobs.db.copiador import copiar_para_tabela
+from tcc_jobs.db.log_ingestao import registrar
 from tcc_jobs.etl.armazenamento import Armazenamento
 
 logger = logging.getLogger(__name__)
@@ -75,6 +77,7 @@ def _carregar_uma(
     competencia: Competencia, armazenamento: Armazenamento, engine: Engine
 ) -> ResultadoCarga:
     resultado = ResultadoCarga(competencia=competencia)
+    iniciado = datetime.now(UTC).replace(tzinfo=None)
 
     try:
         lic = _ler_silver(armazenamento, competencia, "licitacao")
@@ -106,7 +109,34 @@ def _carregar_uma(
         resultado.erro = f"{type(erro).__name__}: {erro}"
         logger.exception("load %s falhou", competencia)
 
+    _registrar(engine, competencia, resultado, iniciado)
     return resultado
+
+
+def _registrar(
+    engine: Engine,
+    competencia: Competencia,
+    resultado: ResultadoCarga,
+    iniciado: datetime,
+) -> None:
+    """Grava o resultado em ingestao_log. Atende ao RF10.
+
+    Fica dentro de _carregar_uma para que o registro não dependa de quem chama
+    lembrar de fazê-lo.
+    """
+    registrar(
+        engine,
+        competencia=competencia,
+        arquivo=f"{competencia}_silver",
+        lidas=sum(resultado.inseridas.values()),
+        inseridas=resultado.inseridas.get("licitacao", 0),
+        atualizadas=0,
+        rejeitadas=0,
+        iniciado_em=iniciado,
+        finalizado_em=datetime.now(UTC).replace(tzinfo=None),
+        status="erro" if resultado.erro else "sucesso",
+        mensagem_erro=resultado.erro,
+    )
 
 
 def _via_temporaria(
