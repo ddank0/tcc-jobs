@@ -18,7 +18,9 @@ name = A casca depende do núcleo, nunca o contrário
 type = layers
 layers =
     tcc_jobs.cli
+    tcc_jobs.etl.pipeline
     tcc_jobs.db | tcc_jobs.portal
+    tcc_jobs.etl.parsers | tcc_jobs.etl.armazenamento
     tcc_jobs.core
 exhaustive = false
 

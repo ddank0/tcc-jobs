@@ -17,10 +17,34 @@ def _intervalo(de: str, ate: str) -> list[Competencia]:
 def ingest(
     de: str = typer.Option(..., help="Competência inicial, AAAAMM"),
     ate: str = typer.Option(..., help="Competência final, AAAAMM"),
+    forcar_download: bool = typer.Option(False, help="Ignora o cache em bronze"),
 ) -> None:
     """Baixa os ZIPs e grava Parquet limpo em silver."""
+    # Import tardio: mantém a CLI leve e evita que importar cli arraste Polars
+    # e httpx para comandos que não precisam deles.
+    from tcc_jobs.core.config import settings
+    from tcc_jobs.etl.armazenamento import Armazenamento
+    from tcc_jobs.etl.pipeline import ingerir
+    from tcc_jobs.portal.client import ClienteHttpPortal
+
     competencias = _intervalo(de, ate)
-    typer.echo(f"ingest {competencias[0]}..{competencias[-1]} - ainda não implementado")
+    resultados = ingerir(
+        competencias,
+        ClienteHttpPortal(),
+        Armazenamento(settings.data_dir),
+        forcar_download=forcar_download,
+    )
+
+    com_erro = [r for r in resultados if r.erro]
+    total = sum(sum(r.linhas_por_tabela.values()) for r in resultados)
+    do_cache = sum(1 for r in resultados if r.veio_do_cache)
+
+    typer.echo(
+        f"{len(resultados) - len(com_erro)}/{len(resultados)} competências, "
+        f"{total} linhas em silver ({do_cache} do cache)"
+    )
+    for r in com_erro:
+        typer.echo(f"  {r.competencia}: {r.erro}", err=True)
 
 
 @app.command()

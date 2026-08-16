@@ -40,7 +40,9 @@ target-version = "py314"
 select = ["E", "F", "I", "UP", "B"]
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+# A raiz entra no path para que os testes importem tipos do conftest - sem
+# isso, "from tests.conftest import ..." falha porque tests não é pacote.
+pythonpath = ["src", "."]
 testpaths = ["tests"]
 
 [tool.pyright]
