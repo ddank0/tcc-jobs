@@ -129,3 +129,95 @@ def parse_licitacao(csv: bytes, competencia: Competencia) -> pl.DataFrame:
         )
         .select(list(ESQUEMA_LICITACAO))
     )
+
+
+COLUNAS_ITEM = {
+    "Número Licitação": "numero_licitacao",
+    "Código UG": "codigo_ug",
+    "Código Modalidade Compra": "codigo_modalidade",
+    "Código Item Compra": "codigo_item_compra",
+    "Descrição": "descricao",
+    "Quantidade Item": "quantidade",
+    "Valor Item": "valor_item",
+    "Código Vencedor": "cnpj_vencedor",
+    "Nome Vencedor": "nome_vencedor",
+}
+
+COLUNAS_PARTICIPANTE = {
+    "Número Licitação": "numero_licitacao",
+    "Código UG": "codigo_ug",
+    "Código Modalidade Compra": "codigo_modalidade",
+    "Código Item Compra": "codigo_item_compra",
+    "Código Participante": "cnpj_participante",
+    "Nome Participante": "nome_participante",
+    "Flag Vencedor": "flag_vencedor",
+}
+
+ESQUEMA_ITEM: dict[str, pl.DataType] = {
+    "numero_licitacao": pl.String(),
+    "codigo_ug": pl.String(),
+    "codigo_modalidade": pl.Int32(),
+    "codigo_item_compra": pl.String(),
+    "descricao": pl.String(),
+    "quantidade": pl.Decimal(18, 4),
+    "valor_item": pl.Decimal(18, 4),
+    "cnpj_vencedor": pl.String(),
+    "nome_vencedor": pl.String(),
+}
+
+ESQUEMA_PARTICIPANTE: dict[str, pl.DataType] = {
+    "numero_licitacao": pl.String(),
+    "codigo_ug": pl.String(),
+    "codigo_modalidade": pl.Int32(),
+    "codigo_item_compra": pl.String(),
+    "cnpj_participante": pl.String(),
+    "nome_participante": pl.String(),
+    "flag_vencedor": pl.Boolean(),
+}
+
+
+def parse_item(csv: bytes) -> pl.DataFrame:
+    """CSV de itens licitados para DataFrame tipado.
+
+    cnpj_vencedor é mantido apesar de derivável de participante: as duas
+    fontes divergem em ~30 casos por competência, e descartar uma perderia
+    informação. Para features de competitividade, a fonte de verdade é
+    participante.flag_vencedor.
+    """
+    if not csv.strip():
+        return pl.DataFrame(schema=ESQUEMA_ITEM)
+
+    return (
+        _ler_csv(csv)
+        .rename(COLUNAS_ITEM)
+        .with_columns(
+            pl.col("codigo_modalidade").cast(pl.Int32, strict=False),
+            _decimal("quantidade"),
+            _decimal("valor_item"),
+        )
+        .select(list(ESQUEMA_ITEM))
+    )
+
+
+def parse_participante(csv: bytes) -> pl.DataFrame:
+    """CSV de participantes para DataFrame tipado.
+
+    É o arquivo mais valioso da fonte: o conjunto de concorrentes por item,
+    com identificação do vencedor, é o que habilita os atributos de
+    competitividade da detecção de anomalias.
+
+    Flag Vencedor vem como SIM/NÃO - com acento, o que reforça a necessidade
+    de decodificar latin-1 antes do Polars.
+    """
+    if not csv.strip():
+        return pl.DataFrame(schema=ESQUEMA_PARTICIPANTE)
+
+    return (
+        _ler_csv(csv)
+        .rename(COLUNAS_PARTICIPANTE)
+        .with_columns(
+            pl.col("codigo_modalidade").cast(pl.Int32, strict=False),
+            (pl.col("flag_vencedor").str.strip_chars() == "SIM").alias("flag_vencedor"),
+        )
+        .select(list(ESQUEMA_PARTICIPANTE))
+    )
