@@ -50,5 +50,13 @@ pythonVersion = "3.14"
 # (PEP 484), então dispensa plugin - ao contrário do mypy.
 typeCheckingMode = "strict"
 
-# Alembic não publica type hints completos.
 reportMissingTypeStubs = false
+
+# O modo strict assume stubs completos, e as bibliotecas de dados não têm:
+# o Polars declara with_columns e select como aceitando Unknown, o que faz o
+# strict marcar toda expressão que passa por eles. Relaxar estas três mantém
+# o resto do strict - inclusive parâmetros e retornos sem anotação, que é o
+# que pega erro de verdade.
+reportUnknownMemberType = false
+reportUnknownVariableType = false
+reportUnknownArgumentType = false
