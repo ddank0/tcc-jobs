@@ -51,6 +51,10 @@ def ingest(
 def load(
     de: str = typer.Option(..., help="Competência inicial, AAAAMM"),
     ate: str = typer.Option(..., help="Competência final, AAAAMM"),
+    carga_inicial: bool = typer.Option(
+        False,
+        help="Remove as chaves estrangeiras durante o INSERT. Exige banco fora de uso.",
+    ),
 ) -> None:
     """Carrega silver no PostgreSQL via COPY."""
     from tcc_jobs.core.config import settings
@@ -58,11 +62,18 @@ def load(
     from tcc_jobs.db.session import criar_engine
     from tcc_jobs.etl.armazenamento import Armazenamento
 
+    if carga_inicial:
+        # O DROP CONSTRAINT precisa de ACCESS EXCLUSIVE e trava qualquer leitura
+        # concorrente - a API inclusive. O aviso é o que impede o uso distraído.
+        typer.echo("carga-inicial: as chaves estrangeiras saem durante o INSERT.", err=True)
+        typer.echo("O banco precisa estar fora de uso - a API travaria.", err=True)
+
     competencias = _intervalo(de, ate)
     resultados = carregar(
         competencias,
         Armazenamento(settings.data_dir),
         criar_engine(settings.database_url),
+        carga_inicial=carga_inicial,
     )
 
     com_erro = [r for r in resultados if r.erro]
