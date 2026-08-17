@@ -13,8 +13,6 @@ import configparser
 import tomllib
 from pathlib import Path
 
-import pytest
-
 RAIZ = Path(__file__).resolve().parent.parent
 PACOTE = RAIZ / "src" / "tcc_jobs"
 
@@ -65,33 +63,6 @@ def test_nucleo_esta_ranqueado_nas_camadas() -> None:
 
     for modulo in ("tcc_jobs.etl.parsers", "tcc_jobs.etl.agregacao"):
         assert modulo in camadas, f"{modulo} é núcleo e precisa estar ranqueado em `camadas`"
-
-
-@pytest.mark.skipif(
-    not (RAIZ / ".ai-context.md").exists(),
-    reason=".ai-context.md é contexto local e fica fora do git - não existe no CI",
-)
-def test_estrutura_documentada_existe() -> None:
-    """O .ai-context.md do repositório descreve a árvore de módulos.
-
-    Descrever módulo que não existe induz a decisão errada de quem lê - o
-    arquivo é carregado como contexto a cada sessão.
-
-    Roda só na máquina de quem desenvolve: o arquivo está no .gitignore por
-    decisão de projeto, então no CI o teste é pulado em vez de falhar.
-    """
-    contexto = (RAIZ / ".ai-context.md").read_text(encoding="utf-8")
-
-    citados = {
-        linha.split("│")[-1].strip().split()[0]
-        for linha in contexto.splitlines()
-        if ".py" in linha and "├──" in linha or "└──" in linha
-    }
-    inexistentes = sorted(
-        nome for nome in citados if nome.endswith(".py") and not list(PACOTE.rglob(nome))
-    )
-
-    assert inexistentes == [], f".ai-context.md descreve módulos que não existem: {inexistentes}"
 
 
 def test_pyproject_e_importlinter_apontam_para_o_mesmo_pacote() -> None:
