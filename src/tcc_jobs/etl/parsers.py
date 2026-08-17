@@ -5,7 +5,9 @@ vieram os bytes nem para onde vai o resultado.
 """
 
 import io
+import struct
 import zipfile
+import zlib
 
 import polars as pl
 
@@ -60,6 +62,21 @@ ESQUEMA_LICITACAO: dict[str, pl.DataType] = {
 }
 
 
+def zip_integro(conteudo: bytes) -> bool:
+    """O conteúdo é um ZIP completo e legível?
+
+    Um download interrompido ainda começa com a assinatura `PK`, então checar
+    o cabeçalho não basta - é preciso ler o índice central, que fica no fim do
+    arquivo. Foi assim que a competência 201812 entrou em bronze com exatos
+    8 MiB e passou a ser servida pelo cache indefinidamente.
+    """
+    try:
+        with zipfile.ZipFile(io.BytesIO(conteudo)) as zip_:
+            return zip_.testzip() is None
+    except zipfile.BadZipFile, OSError:
+        return False
+
+
 def extrair_do_zip(conteudo: bytes) -> dict[str, bytes]:
     """Devolve os CSVs do ZIP indexados pelo tipo, sem o prefixo de competência.
 
@@ -68,10 +85,64 @@ def extrair_do_zip(conteudo: bytes) -> dict[str, bytes]:
     arquivos: dict[str, bytes] = {}
     with zipfile.ZipFile(io.BytesIO(conteudo)) as zip_:
         for nome in zip_.namelist():
-            # "202401_Licitação.csv" -> "Licitação"
-            tipo = nome.split("_", 1)[1].removesuffix(".csv")
-            arquivos[tipo] = zip_.read(nome)
+            arquivos[_tipo_do_membro(nome)] = zip_.read(nome)
     return arquivos
+
+
+# Deslocamentos dentro do cabeçalho local de um membro, conforme o formato ZIP.
+_ASSINATURA_LOCAL = b"PK\x03\x04"
+_CABECALHO_LOCAL = 30
+_DEFLATE = 8
+
+
+def _tipo_do_membro(nome: str) -> str:
+    """ "202401_Licitação.csv" -> "Licitação"."""
+    return nome.split("_", 1)[1].removesuffix(".csv")
+
+
+def extrair_recuperavel(conteudo: bytes) -> dict[str, bytes]:
+    """Extrai o que der de um ZIP truncado, varrendo os cabeçalhos locais.
+
+    O `zipfile` depende do índice central, que fica no fim do arquivo - se o
+    fim foi cortado, ele não abre nada, nem os membros intactos do começo.
+    Aqui a varredura é para a frente, membro a membro, e só entra no resultado
+    o que descomprimir exatamente até o tamanho declarado.
+
+    Existe por causa da competência 201812, publicada corrompida na origem: o
+    ZIP termina em exatos 8 MiB, no meio do último CSV. Descartar a
+    competência inteira abriria um buraco na série mensal - e séries com
+    buraco são um problema para o SARIMA, que pressupõe espaçamento regular.
+
+    Um membro parcial nunca é devolvido. Meio CSV de participantes seria pior
+    que nenhum: enviesaria as features de competitividade para baixo sem
+    deixar sinal de que faltou dado.
+    """
+    recuperados: dict[str, bytes] = {}
+    posicao = conteudo.find(_ASSINATURA_LOCAL)
+
+    while posicao >= 0:
+        try:
+            (metodo,) = struct.unpack_from("<H", conteudo, posicao + 8)
+            comprimido, original = struct.unpack_from("<II", conteudo, posicao + 18)
+            tam_nome, tam_extra = struct.unpack_from("<HH", conteudo, posicao + 26)
+            nome = conteudo[posicao + _CABECALHO_LOCAL : posicao + _CABECALHO_LOCAL + tam_nome]
+            inicio = posicao + _CABECALHO_LOCAL + tam_nome + tam_extra
+            bruto = conteudo[inicio : inicio + comprimido]
+
+            if metodo == _DEFLATE:
+                dados = zlib.decompressobj(-zlib.MAX_WBITS).decompress(bruto)
+            else:
+                dados = bruto
+
+            if len(dados) == original:
+                recuperados[_tipo_do_membro(nome.decode("utf-8", "replace"))] = dados
+
+        except struct.error, zlib.error, IndexError, UnicodeDecodeError:
+            pass  # membro ilegível não impede os seguintes
+
+        posicao = conteudo.find(_ASSINATURA_LOCAL, posicao + len(_ASSINATURA_LOCAL))
+
+    return recuperados
 
 
 def _ler_csv(csv: bytes) -> pl.DataFrame:

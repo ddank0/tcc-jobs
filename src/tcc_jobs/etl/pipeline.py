@@ -13,9 +13,11 @@ from tcc_jobs.core.competencia import Competencia
 from tcc_jobs.etl.armazenamento import Armazenamento
 from tcc_jobs.etl.parsers import (
     extrair_do_zip,
+    extrair_recuperavel,
     parse_item,
     parse_licitacao,
     parse_participante,
+    zip_integro,
 )
 from tcc_jobs.portal.client import ClientePortal, CompetenciaIndisponivelError
 
@@ -31,6 +33,8 @@ class ResultadoIngestao:
     competencia: Competencia
     linhas_por_tabela: dict[str, int] = field(default_factory=dict)
     veio_do_cache: bool = False
+    recuperacao_parcial: bool = False
+    tabelas_ausentes: list[str] = field(default_factory=list)
     erro: str | None = None
 
 
@@ -67,18 +71,44 @@ def _ingerir_uma(
 
     try:
         conteudo = None if forcar_download else armazenamento.ler_bronze(competencia)
+
+        # Um bronze corrompido não pode ser terminal: sem esta checagem o cache
+        # devolve o mesmo arquivo quebrado em toda tentativa, e a competência
+        # fica permanentemente fora da série.
+        if conteudo is not None and not zip_integro(conteudo):
+            logger.warning("ingest %s: bronze corrompido, baixando de novo", competencia)
+            conteudo = None
+
         if conteudo is None:
             conteudo = cliente.baixar(competencia)
             armazenamento.gravar_bronze(competencia, conteudo)
         else:
             resultado.veio_do_cache = True
 
-        quadros = _converter(extrair_do_zip(conteudo), competencia)
+        if zip_integro(conteudo):
+            arquivos = extrair_do_zip(conteudo)
+        else:
+            # A fonte publica 201812 truncada: re-baixar devolve o mesmo ZIP
+            # quebrado. Aproveita-se o que estiver íntegro, porque descartar a
+            # competência abriria buraco na série mensal.
+            arquivos = extrair_recuperavel(conteudo)
+            if not arquivos:
+                raise ValueError("ZIP corrompido e sem nenhum membro recuperável")
+            resultado.recuperacao_parcial = True
+            logger.warning(
+                "ingest %s: ZIP corrompido na origem, recuperados %s",
+                competencia,
+                sorted(arquivos),
+            )
+
+        quadros = _converter(arquivos, competencia)
 
         for tabela in TABELAS:
             df = quadros[tabela]
             armazenamento.gravar_silver(competencia, tabela, df)
             resultado.linhas_por_tabela[tabela] = df.height
+            if resultado.recuperacao_parcial and df.height == 0:
+                resultado.tabelas_ausentes.append(tabela)
 
         logger.info("ingest %s: %s", competencia, resultado.linhas_por_tabela)
 

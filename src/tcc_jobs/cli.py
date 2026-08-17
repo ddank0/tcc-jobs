@@ -46,6 +46,12 @@ def ingest(
     for r in com_erro:
         typer.echo(f"  {r.competencia}: {r.erro}", err=True)
 
+    # Recuperação parcial não é erro, mas deixa lacuna no dado - e lacuna
+    # silenciosa vira conclusão errada lá na frente.
+    for r in (x for x in resultados if x.recuperacao_parcial):
+        ausentes = ", ".join(r.tabelas_ausentes) or "nenhuma tabela"
+        typer.echo(f"  {r.competencia}: ZIP corrompido na origem, sem {ausentes}", err=True)
+
 
 @app.command()
 def load(

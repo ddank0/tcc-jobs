@@ -36,9 +36,18 @@ class Armazenamento:
         return self.bronze / f"{competencia}.zip"
 
     def gravar_bronze(self, competencia: Competencia, conteudo: bytes) -> Path:
+        """Grava em temporário e renomeia.
+
+        Escrita direta deixaria um arquivo parcial se o processo morresse no
+        meio - e o parcial seria indistinguível de um download completo para
+        quem lê o cache depois. O rename é atômico no mesmo sistema de
+        arquivos, então ou o ZIP está inteiro ou não existe.
+        """
         caminho = self._caminho_bronze(competencia)
         caminho.parent.mkdir(parents=True, exist_ok=True)
-        caminho.write_bytes(conteudo)
+        temporario = caminho.with_suffix(".zip.tmp")
+        temporario.write_bytes(conteudo)
+        temporario.replace(caminho)
         return caminho
 
     def ler_bronze(self, competencia: Competencia) -> bytes | None:
