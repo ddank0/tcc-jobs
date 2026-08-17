@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from tcc_jobs.core.competencia import Competencia
 from tcc_jobs.etl.armazenamento import Armazenamento
 from tcc_jobs.etl.pipeline import ingerir
@@ -107,6 +109,10 @@ def test_cache_corrompido_e_rebaixado(tmp_path: Path, criar_cliente: CriarClient
 def test_bronze_gravado_de_forma_atomica(tmp_path: Path, criar_cliente: CriarCliente) -> None:
     """Escrita direta deixa arquivo parcial se o processo morrer no meio - e o
     parcial vira cache permanente. Não pode sobrar temporário ao final.
+
+    Checar a ausência de `.tmp` não basta: a escrita direta também não deixa
+    `.tmp`, então a asserção sobrevive à remoção da atomicidade. O que prova a
+    garantia é `test_bronze_nunca_fica_parcialmente_escrito`, abaixo.
     """
     arm = Armazenamento(tmp_path)
 
@@ -148,3 +154,29 @@ def test_zip_irrecuperavel_vira_erro(tmp_path: Path, criar_cliente: CriarCliente
     resultado = ingerir([C], criar_cliente(conteudo=b"<html>fora do ar</html>"), arm)[0]
 
     assert resultado.erro is not None
+
+
+def test_bronze_nunca_fica_parcialmente_escrito(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, zip_amostra: bytes
+) -> None:
+    """Morte no meio da escrita não pode deixar meio arquivo no lugar final.
+
+    Simula o processo morrendo durante `write_bytes`. Com escrita direta, o
+    caminho definitivo fica com conteúdo parcial e vira cache permanente; com
+    temporário mais rename, ou o arquivo está inteiro ou não existe.
+    """
+    arm = Armazenamento(tmp_path)
+    original = Path.write_bytes
+
+    def morrer_no_meio(self: Path, dados: bytes) -> int:
+        original(self, dados[: len(dados) // 2])
+        raise OSError("disco cheio")
+
+    monkeypatch.setattr(Path, "write_bytes", morrer_no_meio)
+
+    with pytest.raises(OSError, match="disco cheio"):
+        arm.gravar_bronze(C, zip_amostra)
+
+    monkeypatch.undo()
+
+    assert arm.ler_bronze(C) is None, "o caminho definitivo não pode existir com conteúdo parcial"

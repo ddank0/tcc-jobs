@@ -34,7 +34,12 @@ def test_participante_converte_flag_para_booleano(arquivos: dict[str, bytes]) ->
     df = parse_participante(arquivos["ParticipantesLicitação"])
 
     assert df.schema["flag_vencedor"] == pl.Boolean
-    assert set(df["flag_vencedor"].unique().to_list()) <= {True, False}
+    # Contagem exata, não "é booleano": a fixture tem 13 SIM e 17 NÃO. Uma
+    # conversão que devolvesse constante - ou que invertesse SIM e NÃO -
+    # passaria por qualquer asserção mais frouxa que esta, e é esta coluna que
+    # sustenta todos os atributos de competitividade.
+    assert df["flag_vencedor"].sum() == 13
+    assert (~df["flag_vencedor"]).sum() == 17
 
 
 def test_participante_reconhece_o_vencedor(arquivos: dict[str, bytes]) -> None:
@@ -42,7 +47,8 @@ def test_participante_reconhece_o_vencedor(arquivos: dict[str, bytes]) -> None:
     despercebido - é esta coluna que sustenta os atributos de competitividade."""
     df = parse_participante(arquivos["ParticipantesLicitação"])
 
-    assert df["flag_vencedor"].sum() > 0
+    assert df["flag_vencedor"].sum() == 13
+    assert not df["flag_vencedor"].all(), "nem todos podem ser vencedores"
 
 
 def test_participante_preserva_nome_com_acento(arquivos: dict[str, bytes]) -> None:

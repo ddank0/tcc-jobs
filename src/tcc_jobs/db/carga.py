@@ -9,7 +9,7 @@ INSERT ... ON CONFLICT a partir dela.
 """
 
 import logging
-from collections.abc import Generator
+from collections.abc import Generator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -25,6 +25,10 @@ from tcc_jobs.etl.armazenamento import Armazenamento
 logger = logging.getLogger(__name__)
 
 CHAVE_NATURAL = ["numero_licitacao", "codigo_ug", "codigo_modalidade"]
+
+# As duas tabelas cujas FKs saem durante a carga inicial. São as que têm
+# volume: 74,8M e 14,2M linhas.
+TABELAS_FILHAS = ("item_licitacao", "participante_licitacao")
 
 COLUNAS_ITEM = [
     "codigo_item_compra",
@@ -58,6 +62,7 @@ COLUNAS_LICITACAO = [
 class ResultadoCarga:
     competencia: Competencia
     inseridas: dict[str, int] = field(default_factory=dict)
+    lidas: dict[str, int] = field(default_factory=dict)
     erro: str | None = None
 
 
@@ -69,11 +74,15 @@ def carregar(
 ) -> list[ResultadoCarga]:
     """Carrega silver no PostgreSQL, uma competência por transação.
 
-    carga_inicial remove as FKs durante a inserção dos filhos, o que é 8,7x
-    mais rápido - mas exige lock exclusivo e só deve ser usado com o banco
-    fora de uso.
+    carga_inicial remove as chaves estrangeiras das tabelas filhas durante o
+    lote inteiro e as recria no fim. Exige lock exclusivo e só deve ser usado
+    com o banco fora de uso - ver `_sem_chaves_estrangeiras`.
     """
-    return [_carregar_uma(c, armazenamento, engine, carga_inicial) for c in competencias]
+    if not carga_inicial:
+        return [_carregar_uma(c, armazenamento, engine) for c in competencias]
+
+    with _sem_chaves_estrangeiras(engine, TABELAS_FILHAS):
+        return [_carregar_uma(c, armazenamento, engine) for c in competencias]
 
 
 def _ler_silver(armazenamento: Armazenamento, c: Competencia, tabela: str) -> pl.DataFrame:
@@ -85,7 +94,6 @@ def _carregar_uma(
     competencia: Competencia,
     armazenamento: Armazenamento,
     engine: Engine,
-    carga_inicial: bool = False,
 ) -> ResultadoCarga:
     resultado = ResultadoCarga(competencia=competencia)
     iniciado = datetime.now(UTC).replace(tzinfo=None)
@@ -95,9 +103,16 @@ def _carregar_uma(
         item = _ler_silver(armazenamento, competencia, "item")
         part = _ler_silver(armazenamento, competencia, "participante")
 
+        resultado.lidas = {
+            "licitacao": lic.height,
+            "item": item.height,
+            "participante": part.height,
+        }
+
         if lic.height == 0:
-            resultado.erro = "silver ausente ou vazio - rode ingest primeiro"
-            return resultado
+            # Sem `return`: ele sairia da função antes de _registrar, e o
+            # caminho de falha é justamente o que o RF10 precisa registrar.
+            raise ValueError("silver ausente ou vazio - rode ingest primeiro")
 
         with engine.begin() as conn:
             # A ordem importa: modalidade e as dimensões antes de licitacao,
@@ -108,19 +123,28 @@ def _carregar_uma(
             resultado.inseridas["fornecedor"] = _carregar_fornecedores(conn, item, part)
             resultado.inseridas["licitacao"] = _carregar_licitacoes(conn, lic)
             resultado.inseridas["item"] = _carregar_filhos(
-                conn, item, "item_licitacao", COLUNAS_ITEM, carga_inicial
+                conn, item, "item_licitacao", COLUNAS_ITEM
             )
             resultado.inseridas["participante"] = _carregar_filhos(
-                conn, part, "participante_licitacao", COLUNAS_PARTICIPANTE, carga_inicial
+                conn, part, "participante_licitacao", COLUNAS_PARTICIPANTE
             )
 
         logger.info("load %s: %s", competencia, resultado.inseridas)
 
+    except ValueError as erro:  # silver ausente: esperado, não merece stack trace
+        resultado.erro = str(erro)
+        logger.warning("load %s: %s", competencia, erro)
     except Exception as erro:  # noqa: BLE001 - uma competência ruim não derruba o lote
         resultado.erro = f"{type(erro).__name__}: {erro}"
         logger.exception("load %s falhou", competencia)
 
-    _registrar(engine, competencia, resultado, iniciado)
+    try:
+        _registrar(engine, competencia, resultado, iniciado)
+    except Exception:
+        # O registro é para observabilidade; falhar nele não pode derrubar o
+        # lote, que é o contrato declarado desta função.
+        logger.exception("load %s: falha ao gravar ingestao_log", competencia)
+
     return resultado
 
 
@@ -139,10 +163,16 @@ def _registrar(
         engine,
         competencia=competencia,
         arquivo=f"{competencia}_silver",
-        lidas=sum(resultado.inseridas.values()),
-        inseridas=resultado.inseridas.get("licitacao", 0),
+        lidas=sum(resultado.lidas.values()),
+        inseridas=sum(resultado.inseridas.get(t, 0) for t in ("licitacao", "item", "participante")),
+        # A carga não atualiza fato: licitacao usa ON CONFLICT DO NOTHING e os
+        # filhos são apagados e reinseridos. O zero aqui é medida, não omissão.
         atualizadas=0,
-        rejeitadas=0,
+        rejeitadas=max(
+            0,
+            sum(resultado.lidas.values())
+            - sum(resultado.inseridas.get(t, 0) for t in ("licitacao", "item", "participante")),
+        ),
         iniciado_em=iniciado,
         finalizado_em=datetime.now(UTC).replace(tzinfo=None),
         status="erro" if resultado.erro else "sucesso",
@@ -151,43 +181,59 @@ def _registrar(
 
 
 @contextmanager
-def _sem_chaves_estrangeiras(conn: Connection, tabela: str) -> Generator[None]:
-    """Remove as FKs da tabela durante a carga e as recria ao final.
+def _sem_chaves_estrangeiras(engine: Engine, tabelas: Sequence[str]) -> Generator[None]:
+    """Remove as FKs das tabelas durante o lote e as recria uma única vez.
 
     O PostgreSQL verifica FK por trigger, uma vez por linha inserida. Medido em
     participante_licitacao com 161 mil linhas: os dois triggers consomem 7,2s
-    dos 8,4s da carga. Recriar a constraint valida a tabela inteira de uma vez
-    e leva 35ms - 8,7x mais rápido no total.
+    dos 8,4s da carga. Recriar a constraint valida em lote e é mais rápido.
 
     Diferir a verificação para o commit não resolve: o custo apenas migra, e o
     tempo total fica igual. Foi medido.
+
+    **O escopo é o lote, não a competência - e isso não é detalhe.** O
+    ADD CONSTRAINT revalida a tabela filha *inteira*, não as linhas novas.
+    Medido na base cheia: 15,9s para uma única FK de participante_licitacao com
+    74,8 milhões de linhas. Fazer isso por competência tornaria a carga
+    O(N x M), e foi o que aconteceu na primeira carga completa: a competência
+    202404, com 721 licitações, levou 31s, enquanto 201301, com 7.104, levou
+    2,1s. Dez vezes menos dado, quinze vezes mais tempo.
 
     ATENÇÃO - só para carga inicial, com o banco fora de uso. O DROP CONSTRAINT
     exige ACCESS EXCLUSIVE, que conflita com qualquer leitura concorrente: se a
     API estiver consultando, a carga trava esperando o lock. É por isso que
     depende de flag explícita em vez de ser o padrão.
 
-    DDL é transacional no PostgreSQL, então um erro no meio faz rollback das
-    constraints junto com os dados.
+    O DROP é commitado antes do lote começar, então morte abrupta do processo
+    (SIGKILL, queda de energia) deixa o banco sem as FKs. Recuperar exige
+    recriá-las à mão - o preço de a janela sem constraint atravessar várias
+    transações. Aceitável porque o modo pressupõe banco fora de uso.
     """
     # CAST(... AS regclass) em vez de ::regclass: o :: colide com a sintaxe de
     # parâmetro do SQLAlchemy e vira erro de sintaxe.
-    definicoes = conn.execute(
-        text("""
-        SELECT conname, pg_get_constraintdef(oid)
-        FROM pg_constraint
-        WHERE conrelid = CAST(:tabela AS regclass) AND contype = 'f'
-        """),
-        {"tabela": tabela},
-    ).all()
+    definicoes: list[tuple[str, str, str]] = []
+    with engine.begin() as conn:
+        for tabela in tabelas:
+            for nome, definicao in conn.execute(
+                text("""
+                SELECT conname, pg_get_constraintdef(oid)
+                FROM pg_constraint
+                WHERE conrelid = CAST(:tabela AS regclass) AND contype = 'f'
+                """),
+                {"tabela": tabela},
+            ).all():
+                definicoes.append((tabela, nome, definicao))
+                conn.execute(text(f'ALTER TABLE "{tabela}" DROP CONSTRAINT "{nome}"'))
 
-    for nome, _ in definicoes:
-        conn.execute(text(f'ALTER TABLE "{tabela}" DROP CONSTRAINT "{nome}"'))
     try:
         yield
     finally:
-        for nome, definicao in definicoes:
-            conn.execute(text(f'ALTER TABLE "{tabela}" ADD CONSTRAINT "{nome}" {definicao}'))
+        # Conexão nova de propósito: se o lote falhou, a transação que abortou
+        # não aceita mais comando algum, e o ADD CONSTRAINT morreria com
+        # "current transaction is aborted" - deixando o banco sem FK.
+        with engine.begin() as conn:
+            for tabela, nome, definicao in definicoes:
+                conn.execute(text(f'ALTER TABLE "{tabela}" ADD CONSTRAINT "{nome}" {definicao}'))
 
 
 def _via_temporaria(
@@ -338,7 +384,6 @@ def _carregar_filhos(
     df: pl.DataFrame,
     tabela: str,
     colunas: list[str],
-    carga_inicial: bool = False,
 ) -> int:
     """Itens e participantes: resolve licitacao_id pela chave natural.
 
@@ -393,10 +438,4 @@ def _carregar_filhos(
         SELECT l.id, {selecao} FROM "{temp}" t {juncao}
     """)
 
-    if carga_inicial:
-        with _sem_chaves_estrangeiras(conn, tabela):
-            resultado = conn.execute(insercao)
-    else:
-        resultado = conn.execute(insercao)
-
-    return resultado.rowcount
+    return conn.execute(insercao).rowcount

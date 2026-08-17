@@ -8,12 +8,17 @@ from tcc_jobs.etl.agregacao import serie_mensal
 def _entrada() -> pl.LazyFrame:
     return pl.LazyFrame(
         {
-            "competencia": ["202401", "202401", "202401", "202402"],
-            "codigo_orgao": ["22000", "22000", "26000", "22000"],
-            "codigo_modalidade": [5, 5, 8, 5],
+            # Três valores assimétricos no grupo 202401/22000: mediana 200,
+            # média 1100. Com dois pontos simétricos as duas coincidem, e o
+            # teste da mediana não distinguiria uma da outra - justamente a
+            # robustez a outlier que motiva o campo.
+            "competencia": ["202401", "202401", "202401", "202401", "202402"],
+            "codigo_orgao": ["22000", "22000", "22000", "26000", "22000"],
+            "codigo_modalidade": [5, 5, 5, 8, 5],
             "valor": [
                 Decimal("100.0000"),
-                Decimal("300.0000"),
+                Decimal("200.0000"),
+                Decimal("3000.0000"),
                 Decimal("50.0000"),
                 Decimal("200.0000"),
             ],
@@ -39,8 +44,8 @@ def test_conta_e_soma() -> None:
         (pl.col("competencia") == "202401") & (pl.col("codigo_orgao") == "22000")
     )
 
-    assert linha["quantidade_licitacoes"][0] == 2
-    assert linha["valor_total"][0] == Decimal("400.0000")
+    assert linha["quantidade_licitacoes"][0] == 3
+    assert linha["valor_total"][0] == Decimal("3300.0000")
 
 
 def test_calcula_mediana() -> None:
@@ -50,6 +55,8 @@ def test_calcula_mediana() -> None:
     )
 
     assert linha["valor_mediano"][0] == Decimal("200.0000")
+    media = linha["valor_total"][0] / linha["quantidade_licitacoes"][0]
+    assert linha["valor_mediano"][0] != media, "mediana precisa diferir da média aqui"
 
 
 def test_devolve_lazyframe_sem_materializar() -> None:
