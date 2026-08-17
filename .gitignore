@@ -13,6 +13,10 @@ data/
 *.parquet
 *.zip
 
+# ...menos as fixtures de teste: sem elas o CI não roda 40 testes
+!tests/fixtures/*.zip
+!tests/fixtures/*.parquet
+
 # Contexto local do ferramentas de IA — não versionado
 .ai-context.md
 .ai-context-*.md
