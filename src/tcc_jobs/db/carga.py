@@ -9,6 +9,8 @@ INSERT ... ON CONFLICT a partir dela.
 """
 
 import logging
+from collections.abc import Generator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
@@ -63,9 +65,15 @@ def carregar(
     competencias: list[Competencia],
     armazenamento: Armazenamento,
     engine: Engine,
+    carga_inicial: bool = False,
 ) -> list[ResultadoCarga]:
-    """Carrega silver no PostgreSQL, uma competência por transação."""
-    return [_carregar_uma(c, armazenamento, engine) for c in competencias]
+    """Carrega silver no PostgreSQL, uma competência por transação.
+
+    carga_inicial remove as FKs durante a inserção dos filhos, o que é 8,7x
+    mais rápido - mas exige lock exclusivo e só deve ser usado com o banco
+    fora de uso.
+    """
+    return [_carregar_uma(c, armazenamento, engine, carga_inicial) for c in competencias]
 
 
 def _ler_silver(armazenamento: Armazenamento, c: Competencia, tabela: str) -> pl.DataFrame:
@@ -74,7 +82,10 @@ def _ler_silver(armazenamento: Armazenamento, c: Competencia, tabela: str) -> pl
 
 
 def _carregar_uma(
-    competencia: Competencia, armazenamento: Armazenamento, engine: Engine
+    competencia: Competencia,
+    armazenamento: Armazenamento,
+    engine: Engine,
+    carga_inicial: bool = False,
 ) -> ResultadoCarga:
     resultado = ResultadoCarga(competencia=competencia)
     iniciado = datetime.now(UTC).replace(tzinfo=None)
@@ -97,10 +108,10 @@ def _carregar_uma(
             resultado.inseridas["fornecedor"] = _carregar_fornecedores(conn, item, part)
             resultado.inseridas["licitacao"] = _carregar_licitacoes(conn, lic)
             resultado.inseridas["item"] = _carregar_filhos(
-                conn, item, "item_licitacao", COLUNAS_ITEM
+                conn, item, "item_licitacao", COLUNAS_ITEM, carga_inicial
             )
             resultado.inseridas["participante"] = _carregar_filhos(
-                conn, part, "participante_licitacao", COLUNAS_PARTICIPANTE
+                conn, part, "participante_licitacao", COLUNAS_PARTICIPANTE, carga_inicial
             )
 
         logger.info("load %s: %s", competencia, resultado.inseridas)
@@ -137,6 +148,46 @@ def _registrar(
         status="erro" if resultado.erro else "sucesso",
         mensagem_erro=resultado.erro,
     )
+
+
+@contextmanager
+def _sem_chaves_estrangeiras(conn: Connection, tabela: str) -> Generator[None]:
+    """Remove as FKs da tabela durante a carga e as recria ao final.
+
+    O PostgreSQL verifica FK por trigger, uma vez por linha inserida. Medido em
+    participante_licitacao com 161 mil linhas: os dois triggers consomem 7,2s
+    dos 8,4s da carga. Recriar a constraint valida a tabela inteira de uma vez
+    e leva 35ms - 8,7x mais rápido no total.
+
+    Diferir a verificação para o commit não resolve: o custo apenas migra, e o
+    tempo total fica igual. Foi medido.
+
+    ATENÇÃO - só para carga inicial, com o banco fora de uso. O DROP CONSTRAINT
+    exige ACCESS EXCLUSIVE, que conflita com qualquer leitura concorrente: se a
+    API estiver consultando, a carga trava esperando o lock. É por isso que
+    depende de flag explícita em vez de ser o padrão.
+
+    DDL é transacional no PostgreSQL, então um erro no meio faz rollback das
+    constraints junto com os dados.
+    """
+    # CAST(... AS regclass) em vez de ::regclass: o :: colide com a sintaxe de
+    # parâmetro do SQLAlchemy e vira erro de sintaxe.
+    definicoes = conn.execute(
+        text("""
+        SELECT conname, pg_get_constraintdef(oid)
+        FROM pg_constraint
+        WHERE conrelid = CAST(:tabela AS regclass) AND contype = 'f'
+        """),
+        {"tabela": tabela},
+    ).all()
+
+    for nome, _ in definicoes:
+        conn.execute(text(f'ALTER TABLE "{tabela}" DROP CONSTRAINT "{nome}"'))
+    try:
+        yield
+    finally:
+        for nome, definicao in definicoes:
+            conn.execute(text(f'ALTER TABLE "{tabela}" ADD CONSTRAINT "{nome}" {definicao}'))
 
 
 def _via_temporaria(
@@ -282,7 +333,13 @@ def _carregar_licitacoes(conn: Connection, lic: pl.DataFrame) -> int:
     )
 
 
-def _carregar_filhos(conn: Connection, df: pl.DataFrame, tabela: str, colunas: list[str]) -> int:
+def _carregar_filhos(
+    conn: Connection,
+    df: pl.DataFrame,
+    tabela: str,
+    colunas: list[str],
+    carga_inicial: bool = False,
+) -> int:
     """Itens e participantes: resolve licitacao_id pela chave natural.
 
     O JOIN acontece em SQL, sem trazer as licitações para a memória do Python.
@@ -330,10 +387,16 @@ def _carregar_filhos(conn: Connection, df: pl.DataFrame, tabela: str, colunas: l
         )
         """)
     )
-    resultado = conn.execute(
-        text(f"""
+
+    insercao = text(f"""
         INSERT INTO "{tabela}" (licitacao_id, {lista})
         SELECT l.id, {selecao} FROM "{temp}" t {juncao}
-        """)
-    )
+    """)
+
+    if carga_inicial:
+        with _sem_chaves_estrangeiras(conn, tabela):
+            resultado = conn.execute(insercao)
+    else:
+        resultado = conn.execute(insercao)
+
     return resultado.rowcount

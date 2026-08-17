@@ -12,6 +12,19 @@ from tests.conftest import CriarCliente
 C = Competencia.de_str("202401")
 
 
+def _zerar(engine: Engine) -> None:
+    """Limpa o banco sem manter transação aberta.
+
+    A fixture `sessao` não serve para os testes de carga inicial: a transação
+    dela conflita com o lock exclusivo do DROP CONSTRAINT.
+    """
+    from tcc_jobs.db.base import Base
+
+    with engine.begin() as conn:
+        nomes = ", ".join(f'"{t}"' for t in Base.metadata.tables)
+        conn.execute(text(f"TRUNCATE {nomes} RESTART IDENTITY CASCADE"))
+
+
 def _silver_pronto(tmp_path: Path, criar_cliente: CriarCliente) -> Armazenamento:
     arm = Armazenamento(tmp_path)
     ingerir([C], criar_cliente(), arm)
@@ -142,3 +155,48 @@ def test_silver_ausente_relata_erro(sessao: Session, engine: Engine, tmp_path: P
 
     assert resultado.erro is not None
     assert "silver" in resultado.erro
+
+
+def test_carga_inicial_produz_o_mesmo_resultado(
+    engine: Engine, tmp_path: Path, criar_cliente: CriarCliente
+) -> None:
+    """O modo rápido remove as FKs durante o INSERT, mas o resultado precisa
+    ser idêntico - e as constraints têm de voltar ao final.
+
+    Não usa a fixture `sessao`: ela mantém uma transação aberta, e o
+    DROP CONSTRAINT precisa de ACCESS EXCLUSIVE - os dois juntos travam. Essa
+    incompatibilidade é a razão de o modo depender de flag explícita.
+    """
+    _zerar(engine)
+    arm = _silver_pronto(tmp_path, criar_cliente)
+
+    carregar([C], arm, engine, carga_inicial=True)
+
+    with engine.connect() as conn:
+        participantes = conn.execute(text("SELECT count(*) FROM participante_licitacao")).scalar()
+        fks = conn.execute(
+            text("""
+            SELECT count(*) FROM pg_constraint
+            WHERE conrelid = CAST('participante_licitacao' AS regclass) AND contype = 'f'
+            """)
+        ).scalar()
+
+    assert participantes is not None and participantes > 0
+    assert fks == 2, "as chaves estrangeiras precisam ser recriadas"
+
+
+def test_carga_inicial_tambem_e_idempotente(
+    engine: Engine, tmp_path: Path, criar_cliente: CriarCliente
+) -> None:
+    _zerar(engine)
+    arm = _silver_pronto(tmp_path, criar_cliente)
+
+    carregar([C], arm, engine, carga_inicial=True)
+    with engine.connect() as conn:
+        antes = conn.execute(text("SELECT count(*) FROM participante_licitacao")).scalar()
+
+    carregar([C], arm, engine, carga_inicial=True)
+    with engine.connect() as conn:
+        depois = conn.execute(text("SELECT count(*) FROM participante_licitacao")).scalar()
+
+    assert antes == depois
