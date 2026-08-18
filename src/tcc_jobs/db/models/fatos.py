@@ -63,7 +63,13 @@ class ItemLicitacao(Base):
     licitacao_id: Mapped[int] = mapped_column(
         ForeignKey("licitacao.id", ondelete="CASCADE"), index=True
     )
-    codigo_item_compra: Mapped[str] = mapped_column(String(30), index=True)
+    # Sem índice: medido em 809 MB e zero usos depois de todos os endpoints
+    # da API exercitados, e a coluna não sustenta chave estrangeira - não há
+    # FK de participante para item, porque 12.424 participantes por competência
+    # apontam para item inexistente. As features de competitividade agregam a
+    # partir do silver, não do banco. Recriar custa ~20 s se algum plano
+    # futuro precisar.
+    codigo_item_compra: Mapped[str] = mapped_column(String(30))
     descricao: Mapped[str | None] = mapped_column(Text)
     quantidade: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
     valor_item: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
