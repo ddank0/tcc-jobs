@@ -70,9 +70,10 @@ def serie_fornecedor(lf: pl.LazyFrame) -> pl.LazyFrame:
     Alimenta o ranking filtrado por período. A granularidade por competência é
     o que permite ao endpoint recortar o intervalo sem recalcular nada.
 
-    `valor_total` vai para Decimal(38, 4) porque `valor_item * quantidade`
-    chega a 9,6e20 no dado real - 1.232 itens passam do limite de 18 dígitos.
-    Somar em Decimal(18, 4) estouraria.
+    O produto `valor_item * quantidade` chega a 9,6e20 no dado real, e 1.232
+    itens passam do limite de 18 dígitos. O Polars promove a precisão sozinho
+    na multiplicação - verificado -, então o cuidado necessário está na coluna
+    de destino: `Numeric(38, 4)`, não `(18, 4)`.
     """
     return (
         _sem_sentinelas(lf, "cnpj_vencedor")
@@ -80,12 +81,7 @@ def serie_fornecedor(lf: pl.LazyFrame) -> pl.LazyFrame:
         .agg(
             pl.len().alias("itens_vencidos"),
             pl.struct(CHAVE_NATURAL).n_unique().alias("licitacoes_distintas"),
-            (
-                pl.col("valor_item").cast(pl.Decimal(38, 4))
-                * pl.col("quantidade").cast(pl.Decimal(38, 4))
-            )
-            .sum()
-            .alias("valor_total"),
+            (pl.col("valor_item") * pl.col("quantidade")).sum().alias("valor_total"),
         )
         .rename({"cnpj_vencedor": "cnpj"})
     )
