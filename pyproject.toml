@@ -44,6 +44,9 @@ select = ["E", "F", "I", "UP", "B"]
 # isso, "from tests.conftest import ..." falha porque tests não é pacote.
 pythonpath = ["src", "."]
 testpaths = ["tests"]
+# `lento` marca teste que lê o silver ou a base cheia. Fica fora do caminho
+# rápido, mas roda no CI de verificação e antes de commit de agregação.
+markers = ["lento: exige silver ou base completa em disco"]
 
 [tool.pyright]
 include = ["src", "tests"]

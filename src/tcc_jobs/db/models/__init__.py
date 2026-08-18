@@ -1,6 +1,8 @@
 from tcc_jobs.db.models.analitico import (
     ExecucaoModelo,
     Previsao,
+    RankingFornecedor,
+    RankingFornecedorTotal,
     ScoreAnomalia,
     SerieMensal,
 )
@@ -22,6 +24,8 @@ __all__ = [
     "Modalidade",
     "Orgao",
     "ParticipanteLicitacao",
+    "RankingFornecedor",
+    "RankingFornecedorTotal",
     "Previsao",
     "ScoreAnomalia",
     "SerieMensal",

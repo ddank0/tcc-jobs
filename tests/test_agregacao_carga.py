@@ -15,13 +15,13 @@ from sqlalchemy.orm import Session
 from tcc_jobs.core.competencia import Competencia
 from tcc_jobs.db.agregacao_carga import agregar
 from tcc_jobs.db.carga import carregar
+from tcc_jobs.etl.armazenamento import Armazenamento
 from tests.conftest import CriarCliente
 
 C = Competencia.de_str("202401")
 
 
 def _carregado(tmp_path: Path, engine: Engine, criar_cliente: CriarCliente) -> None:
-    from tcc_jobs.etl.armazenamento import Armazenamento
     from tcc_jobs.etl.pipeline import ingerir
 
     arm = Armazenamento(tmp_path)
@@ -173,3 +173,86 @@ def test_decimal_nao_perde_precisao(
 
     assert isinstance(total, Decimal)
     assert total == total.quantize(Decimal("0.0001"))
+
+
+def _silver_com_itens(tmp_path: Path, criar_cliente: CriarCliente) -> Armazenamento:
+    from tcc_jobs.etl.pipeline import ingerir
+
+    arm = Armazenamento(tmp_path)
+    ingerir([C], criar_cliente(), arm)
+    return arm
+
+
+def test_agrega_fornecedores_a_partir_do_silver(
+    sessao: Session, engine: Engine, tmp_path: Path, criar_cliente: CriarCliente
+) -> None:
+    from tcc_jobs.db.agregacao_carga import agregar_fornecedores
+
+    arm = _silver_com_itens(tmp_path, criar_cliente)
+
+    por_competencia, global_ = agregar_fornecedores(engine, arm)
+
+    assert por_competencia > 0
+    assert global_ > 0
+    assert (
+        sessao.execute(text("SELECT count(*) FROM ranking_fornecedor")).scalar() == por_competencia
+    )
+    assert sessao.execute(text("SELECT count(*) FROM ranking_fornecedor_total")).scalar() == global_
+
+
+def test_as_duas_tabelas_somam_o_mesmo_total(
+    sessao: Session, engine: Engine, tmp_path: Path, criar_cliente: CriarCliente
+) -> None:
+    """Se divergirem, a tela mostra números que não fecham entre si."""
+    from tcc_jobs.db.agregacao_carga import agregar_fornecedores
+
+    agregar_fornecedores(engine, _silver_com_itens(tmp_path, criar_cliente))
+
+    da_serie = sessao.execute(
+        text("SELECT sum(valor_total), sum(itens_vencidos) FROM ranking_fornecedor")
+    ).one()
+    do_global = sessao.execute(
+        text("SELECT sum(valor_total), sum(itens_vencidos) FROM ranking_fornecedor_total")
+    ).one()
+
+    assert da_serie == do_global
+
+
+def test_reagregar_fornecedores_nao_duplica(
+    sessao: Session, engine: Engine, tmp_path: Path, criar_cliente: CriarCliente
+) -> None:
+    """O TRUNCATE antes do COPY é o que torna o recálculo repetível."""
+    from tcc_jobs.db.agregacao_carga import agregar_fornecedores
+
+    arm = _silver_com_itens(tmp_path, criar_cliente)
+
+    primeira = agregar_fornecedores(engine, arm)
+    segunda = agregar_fornecedores(engine, arm)
+
+    assert primeira == segunda
+    assert sessao.execute(text("SELECT count(*) FROM ranking_fornecedor")).scalar() == primeira[0]
+
+
+def test_nenhum_cnpj_sentinela_no_ranking(
+    sessao: Session, engine: Engine, tmp_path: Path, criar_cliente: CriarCliente
+) -> None:
+    """Sentinela é ausência de dado - entraria como vencedor fictício."""
+    from tcc_jobs.db.agregacao_carga import agregar_fornecedores
+
+    agregar_fornecedores(engine, _silver_com_itens(tmp_path, criar_cliente))
+
+    indevidos = sessao.execute(
+        text("""
+        SELECT count(*) FROM ranking_fornecedor
+        WHERE cnpj IN ('-11', '-2') OR cnpj LIKE 'ESTRANG%'
+        """)
+    ).scalar()
+
+    assert indevidos == 0
+
+
+def test_silver_ausente_nao_estoura(sessao: Session, engine: Engine, tmp_path: Path) -> None:
+    """Rodar aggregate antes de ingest é engano comum, não deve virar exceção."""
+    from tcc_jobs.db.agregacao_carga import agregar_fornecedores
+
+    assert agregar_fornecedores(engine, Armazenamento(tmp_path)) == (0, 0)

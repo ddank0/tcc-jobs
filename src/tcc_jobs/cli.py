@@ -95,13 +95,20 @@ def load(
 
 @app.command()
 def aggregate() -> None:
-    """Monta serie_mensal e a matriz de atributos."""
+    """Monta as tabelas agregadas que a API serve."""
     from tcc_jobs.core.config import settings
-    from tcc_jobs.db.agregacao_carga import agregar
+    from tcc_jobs.db.agregacao_carga import agregar, agregar_fornecedores
     from tcc_jobs.db.session import criar_engine
+    from tcc_jobs.etl.armazenamento import Armazenamento
 
-    total = agregar(criar_engine(settings.database_url))
+    engine = criar_engine(settings.database_url)
+
+    total = agregar(engine)
     typer.echo(f"serie_mensal: {total} linhas")
+
+    por_competencia, global_ = agregar_fornecedores(engine, Armazenamento(settings.data_dir))
+    typer.echo(f"ranking_fornecedor: {por_competencia} linhas")
+    typer.echo(f"ranking_fornecedor_total: {global_} linhas")
 
 
 @app.command()

@@ -22,6 +22,42 @@ class SerieMensal(Base):
     valor_mediano: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
 
 
+class RankingFornecedor(Base):
+    """Itens vencidos por competência e fornecedor.
+
+    Existe porque o ranking a partir de `item_licitacao` leva 7.866 ms na base
+    cheia - 26x o orçamento de 500 ms -, e a API não executa cálculo caro.
+    Populada pelo `aggregate` a partir do silver.
+    """
+
+    __tablename__ = "ranking_fornecedor"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    competencia: Mapped[str] = mapped_column(String(6), index=True)
+    cnpj: Mapped[str] = mapped_column(String(20), index=True)
+    itens_vencidos: Mapped[int] = mapped_column(Integer, default=0)
+    licitacoes_distintas: Mapped[int] = mapped_column(Integer, default=0)
+    # Numeric(38, 4) e não (18, 4): `valor_item * quantidade` chega a 9,6e20 no
+    # dado real, e 1.232 itens passam do limite de 18 dígitos.
+    valor_total: Mapped[Decimal | None] = mapped_column(Numeric(38, 4))
+
+
+class RankingFornecedorTotal(Base):
+    """Ranking global, colapsando as competências.
+
+    Somar as 1,65 milhão de linhas de `ranking_fornecedor` em tempo de request
+    custa 1.530 ms, e o ranking sem filtro de período é o que a tela de análise
+    histórica abre por padrão. Aqui são 326 mil linhas.
+    """
+
+    __tablename__ = "ranking_fornecedor_total"
+
+    cnpj: Mapped[str] = mapped_column(String(20), primary_key=True)
+    itens_vencidos: Mapped[int] = mapped_column(Integer, default=0)
+    licitacoes_distintas: Mapped[int] = mapped_column(Integer, default=0)
+    valor_total: Mapped[Decimal | None] = mapped_column(Numeric(38, 4))
+
+
 class ExecucaoModelo(Base):
     """Uma rodada de treino ou scoring, com parâmetros e métricas.
 
