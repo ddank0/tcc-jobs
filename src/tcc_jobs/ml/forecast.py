@@ -87,3 +87,67 @@ def prever(serie: list[float], h: int, m: int = 12) -> Previsao:
     superior = [float(v) for v in resultado[f"AutoARIMA-hi-{NIVEL_INTERVALO}"]]
 
     return Previsao(pontual=pontual, inferior=inferior, superior=superior)
+
+
+@dataclass(frozen=True)
+class SerieTemporal:
+    """Uma série de treino: um par órgão/modalidade, ordenado no tempo."""
+
+    codigo_orgao: str
+    codigo_modalidade: int
+    competencias: list[str]
+    quantidades: list[float]
+    valores: list[float]
+
+
+@dataclass(frozen=True)
+class Selecao:
+    """Séries elegíveis mais a contagem do que ficou de fora.
+
+    O descarte contado faz parte do resultado: 575 séries da base têm menos de
+    24 meses e somam 0,4% do volume - descartá-las é defensável, escondê-las
+    seria viés.
+    """
+
+    series: list[SerieTemporal]
+    elegiveis: int
+    descartadas: int
+
+
+def selecionar_series(lf: pl.LazyFrame, minimo_treino: int, h: int) -> Selecao:
+    """Separa as séries com história suficiente para treinar e avaliar.
+
+    Elegível é a série com pelo menos `minimo_treino + h` pontos: menos que
+    isso não produz nem uma janela de backtesting válida.
+    """
+    corte = minimo_treino + h
+
+    df = (
+        lf.sort("competencia")
+        .group_by(["codigo_orgao", "codigo_modalidade"], maintain_order=True)
+        .agg(
+            pl.col("competencia"),
+            pl.col("quantidade_licitacoes").cast(pl.Float64).alias("quantidades"),
+            pl.col("valor_total").cast(pl.Float64).alias("valores"),
+            pl.len().alias("meses"),
+        )
+        .collect()
+    )
+
+    series = [
+        SerieTemporal(
+            codigo_orgao=str(linha["codigo_orgao"]),
+            codigo_modalidade=int(linha["codigo_modalidade"]),
+            competencias=list(linha["competencia"]),
+            quantidades=list(linha["quantidades"]),
+            valores=list(linha["valores"]),
+        )
+        for linha in df.iter_rows(named=True)
+        if linha["meses"] >= corte
+    ]
+
+    return Selecao(
+        series=series,
+        elegiveis=len(series),
+        descartadas=df.height - len(series),
+    )
