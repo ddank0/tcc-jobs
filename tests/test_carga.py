@@ -17,9 +17,19 @@ def _zerar(engine: Engine) -> None:
     """Limpa o banco sem manter transação aberta.
 
     A fixture `sessao` não serve para os testes de carga inicial: a transação
-    dela conflita com o lock exclusivo do DROP CONSTRAINT.
+    dela conflita com o lock exclusivo do DROP CONSTRAINT. Mas a garantia de
+    esquema precisa ser a mesma - sem ela, estes testes dependem de outro
+    arquivo ter rodado antes, e a ordem de execução vira acoplamento.
     """
+    from sqlalchemy import inspect
+
     from tcc_jobs.db.base import Base
+
+    esperadas = set(Base.metadata.tables)
+    if not esperadas <= set(inspect(engine).get_table_names()):
+        with engine.begin() as conn:
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+        Base.metadata.create_all(engine)
 
     with engine.begin() as conn:
         nomes = ", ".join(f'"{t}"' for t in Base.metadata.tables)

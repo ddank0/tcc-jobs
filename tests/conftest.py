@@ -41,6 +41,10 @@ def sessao(engine: Engine) -> Iterator[Session]:
     existentes = set(inspect(engine).get_table_names())
 
     if not esperadas <= existentes:
+        with engine.begin() as conn:
+            # O índice trigram de licitacao.objeto exige a extensão; sem ela o
+            # create_all falha num banco recém-criado - caso do CI.
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
         Base.metadata.create_all(engine)
     else:
         with engine.begin() as conn:
