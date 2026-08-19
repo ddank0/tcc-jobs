@@ -64,3 +64,30 @@ def pontuar(matriz: pl.DataFrame, seed: int = 42) -> Scores:
     invertido = modelo.score_samples(x)
 
     return Scores(valores=[float(-v) for v in invertido])
+
+
+def contribuicoes(matriz: pl.DataFrame) -> list[list[tuple[str, float]]]:
+    """Desvio robusto de cada atributo, por linha, ordenado do maior ao menor.
+
+    Não é SHAP - fora de escopo declarado. É |z-score robusto|: quanto cada
+    atributo está longe do típico da população, em unidades de IQR. Responde
+    "o que torna este registro atípico" de forma contestável: quem discorda
+    olha o valor da feature, que a API devolve junto.
+
+    Booleanos entram na mesma régua: um valor raro (IQR zero substituído por
+    1) desvia da mediana e contribui; o comum contribui zero.
+    """
+    if matriz.height == 0:
+        return []
+
+    nomes = matriz.columns
+    z = np.abs(_normalizar_robusto(matriz))
+
+    return [
+        sorted(
+            ((nome, float(z[i, j])) for j, nome in enumerate(nomes)),
+            key=lambda par: par[1],
+            reverse=True,
+        )
+        for i in range(z.shape[0])
+    ]
