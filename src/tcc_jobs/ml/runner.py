@@ -14,8 +14,12 @@ from sqlalchemy import Engine, delete, text
 from sqlalchemy.orm import Session
 
 from tcc_jobs.core.competencia import Competencia
+from tcc_jobs.db.copiador import copiar_para_tabela
 from tcc_jobs.db.models import ExecucaoModelo, Previsao
 from tcc_jobs.db.session import criar_sessionmaker
+from tcc_jobs.etl.armazenamento import Armazenamento
+from tcc_jobs.ml.anomaly import contribuicoes, pontuar
+from tcc_jobs.ml.features import CHAVE, COLUNAS_FEATURES, montar_features
 from tcc_jobs.ml.forecast import (
     NIVEL_INTERVALO,
     Selecao,
@@ -198,3 +202,147 @@ def _remover_rodada_anterior(sessao: Session, tipo: str) -> None:
     if ids:
         sessao.execute(delete(Previsao).where(Previsao.execucao_id.in_(ids)))
         sessao.execute(delete(ExecucaoModelo).where(ExecucaoModelo.id.in_(ids)))
+
+
+@dataclass(frozen=True)
+class ResultadoScore:
+    pontuadas: int
+
+
+def pontuar_universo(
+    engine: Engine, armazenamento: Armazenamento, seed: int = 42
+) -> ResultadoScore:
+    """Monta a matriz do silver, pontua e grava score_anomalia.
+
+    A matriz vem do silver (74,8M de participantes agregados em ~13s), mas o
+    licitacao_id vem do banco - o silver não o conhece, porque é o banco que o
+    gera. O join é pela chave natural.
+
+    Nulos viram neutros aqui, na casca, com a decisão explícita: razão sem
+    referência vira 1 (típico), taxa sem vencedor vira 0. O detector recusa
+    nulo de propósito para essa decisão nunca ser implícita.
+    """
+    lic = pl.scan_parquet(f"{armazenamento.silver}/licitacao/*.parquet")
+    itens = pl.scan_parquet(f"{armazenamento.silver}/item/*.parquet")
+    part = pl.scan_parquet(f"{armazenamento.silver}/participante/*.parquet")
+
+    matriz = montar_features(lic, itens, part).collect()
+    if matriz.height == 0:
+        logger.warning("score: nenhum dado em silver")
+        return ResultadoScore(pontuadas=0)
+
+    neutros = {
+        "razao_valor_grupo": 1.0,
+        "razao_participantes_modalidade": 1.0,
+        "taxa_vitoria_vencedor": 0.0,
+        "razao_item_max": 1.0,
+        "desvio_sazonal_orgao": 1.0,
+        "hhi_orgao": 0.0,
+    }
+    matriz = matriz.with_columns([pl.col(c).fill_null(v) for c, v in neutros.items()]).with_columns(
+        pl.col("sem_vencedor").cast(pl.Float64), pl.col("contem_item_implausivel").cast(pl.Float64)
+    )
+
+    so_features = matriz.select(COLUNAS_FEATURES)
+    scores = pontuar(so_features, seed=seed)
+    contribs = contribuicoes(so_features)
+
+    with engine.begin() as conn:
+        ids = pl.read_database(
+            "SELECT id, numero_licitacao, codigo_ug, codigo_modalidade FROM licitacao",
+            connection=conn,
+        )
+    com_id = matriz.with_columns(pl.Series("score", scores.valores)).join(
+        ids.with_columns(pl.col("codigo_modalidade").cast(pl.Int64)),
+        left_on=CHAVE,
+        right_on=["numero_licitacao", "codigo_ug", "codigo_modalidade"],
+        how="inner",
+    )
+
+    ordenado = com_id.sort("score", descending=True).with_row_index("posicao", offset=1)
+
+    total = _persistir_scores(engine, ordenado, contribs, matriz, seed)
+    logger.info("score: %d licitações pontuadas", total)
+    return ResultadoScore(pontuadas=total)
+
+
+def _persistir_scores(
+    engine: Engine,
+    ordenado: pl.DataFrame,
+    contribs: list[list[tuple[str, float]]],
+    matriz: pl.DataFrame,
+    seed: int,
+) -> int:
+    """Grava via COPY, não ORM: são 1,74 milhão de linhas.
+
+    A primeira versão usava sessao.add por linha e levou 9,9 min - dentro do
+    orçamento por seis segundos, mas violando a regra do projeto, e o score é
+    o job que mais se repete. O features_json é montado como texto por
+    compreensão única; o gargalo era o round-trip por linha do ORM, não a
+    serialização.
+    """
+    import json
+
+    matriz_idx = matriz.with_row_index("idx_original")
+    ordenado = ordenado.join(
+        matriz_idx.select(CHAVE + ["idx_original"]),
+        left_on=CHAVE,
+        right_on=CHAVE,
+        how="left",
+    )
+
+    tipo = "anomaly:licitacao"
+    with engine.begin() as conn:
+        antigos = (
+            conn.execute(text("SELECT id FROM execucao_modelo WHERE tipo = :t"), {"t": tipo})
+            .scalars()
+            .all()
+        )
+        for antigo in antigos:
+            # o CASCADE da FK leva os scores
+            conn.execute(text("DELETE FROM execucao_modelo WHERE id = :i"), {"i": antigo})
+
+    with criar_sessionmaker(engine)() as sessao:
+        execucao = ExecucaoModelo(
+            tipo=tipo,
+            algoritmo="IsolationForest",
+            parametros_json={"n_estimators": 100, "seed": seed, "normalizacao": "mediana/IQR"},
+            metricas_json={"pontuadas": ordenado.height},
+            janela_treino_inicio=None,
+            janela_treino_fim=None,
+            executado_em=datetime.now(UTC).replace(tzinfo=None),
+        )
+        sessao.add(execucao)
+        sessao.commit()
+        execucao_id = execucao.id
+
+    valores_cols = ordenado.select(COLUNAS_FEATURES).to_dicts()
+    indices = ordenado["idx_original"].to_list()
+    features_json = [
+        json.dumps(
+            {
+                "valores": valores_cols[i],
+                "contribuicoes": [
+                    {"atributo": nome, "desvio": round(v, 4)}
+                    for nome, v in contribs[int(indices[i])][:5]
+                ],
+            }
+        )
+        for i in range(ordenado.height)
+    ]
+
+    para_copiar = ordenado.select(
+        pl.lit(execucao_id).alias("execucao_id"),
+        pl.col("id").alias("licitacao_id"),
+        pl.col("score").round(6),
+        pl.col("posicao").alias("posicao_ranking"),
+    ).with_columns(pl.Series("features_json", features_json))
+
+    with engine.begin() as conn:
+        total = copiar_para_tabela(
+            conn,
+            "score_anomalia",
+            para_copiar,
+            ["execucao_id", "licitacao_id", "score", "posicao_ranking", "features_json"],
+        )
+    return total
