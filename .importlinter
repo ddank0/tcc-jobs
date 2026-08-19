@@ -20,7 +20,7 @@ layers =
     tcc_jobs.cli
     tcc_jobs.etl.pipeline | tcc_jobs.ml.runner
     tcc_jobs.db | tcc_jobs.portal
-    tcc_jobs.etl.parsers | tcc_jobs.etl.armazenamento | tcc_jobs.etl.agregacao | tcc_jobs.ml.forecast | tcc_jobs.ml.evaluation
+    tcc_jobs.etl.parsers | tcc_jobs.etl.armazenamento | tcc_jobs.etl.agregacao | tcc_jobs.ml.forecast | tcc_jobs.ml.evaluation | tcc_jobs.ml.features
     tcc_jobs.core
 # exhaustive não serve aqui: exige containers, e com container o ranqueamento
 # passa a ser por filho direto de tcc_jobs, perdendo a granularidade dentro de
@@ -65,6 +65,7 @@ source_modules =
     tcc_jobs.etl.armazenamento
     tcc_jobs.ml.forecast
     tcc_jobs.ml.evaluation
+    tcc_jobs.ml.features
 forbidden_modules =
     tcc_jobs.db
     tcc_jobs.portal
