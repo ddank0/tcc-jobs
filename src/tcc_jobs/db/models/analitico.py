@@ -116,5 +116,7 @@ class ScoreAnomalia(Base):
         ForeignKey("licitacao.id", ondelete="CASCADE"), index=True
     )
     score: Mapped[Decimal] = mapped_column(Numeric(12, 6), index=True)
-    posicao_ranking: Mapped[int | None] = mapped_column(Integer)
+    # Indexado: é a ordem da listagem /anomalies, e sem índice o ORDER BY
+    # vira external merge em disco (medido: 907 ms no endpoint).
+    posicao_ranking: Mapped[int | None] = mapped_column(Integer, index=True)
     features_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
