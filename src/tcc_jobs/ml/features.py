@@ -103,9 +103,7 @@ def montar_features(
         pl.col("flag_vencedor").sum().alias("n_vencedores"),
     )
     mediana_mod = (
-        por_lic.join(
-            base.select(CHAVE).unique(subset=CHAVE), on=CHAVE, how="inner"
-        )
+        por_lic.join(base.select(CHAVE).unique(subset=CHAVE), on=CHAVE, how="inner")
         .group_by("codigo_modalidade")
         .agg(pl.col("n_participantes").median().alias("mediana_part_modalidade"))
     )
