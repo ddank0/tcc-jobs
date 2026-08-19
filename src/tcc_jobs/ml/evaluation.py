@@ -6,7 +6,9 @@ silencioso e melhora todas as métricas - por isso a geração de janelas é
 pura e testada por mutação.
 """
 
+import math
 from collections.abc import Iterator
+from typing import Literal, overload
 
 
 def janelas(n_pontos: int, h: int, minimo_treino: int) -> Iterator[tuple[slice, slice]]:
@@ -37,3 +39,73 @@ def janelas(n_pontos: int, h: int, minimo_treino: int) -> Iterator[tuple[slice, 
 
     for inicio_teste in sorted(origens):
         yield slice(0, inicio_teste), slice(inicio_teste, inicio_teste + h)
+
+
+def _validar(observado: list[float], previsto: list[float]) -> None:
+    if len(observado) != len(previsto):
+        raise ValueError(
+            f"tamanhos diferentes: {len(observado)} observados, {len(previsto)} previstos"
+        )
+    if not observado:
+        raise ValueError("séries vazias não têm erro definido")
+
+
+def mae(observado: list[float], previsto: list[float]) -> float:
+    """Erro absoluto médio, na unidade da série."""
+    _validar(observado, previsto)
+    return sum(abs(o - p) for o, p in zip(observado, previsto)) / len(observado)
+
+
+def rmse(observado: list[float], previsto: list[float]) -> float:
+    """Raiz do erro quadrático médio: pesa erro grande mais que o MAE."""
+    _validar(observado, previsto)
+    return math.sqrt(sum((o - p) ** 2 for o, p in zip(observado, previsto)) / len(observado))
+
+
+@overload
+def mape(observado: list[float], previsto: list[float]) -> float: ...
+@overload
+def mape(
+    observado: list[float], previsto: list[float], *, com_ignorados: Literal[True]
+) -> tuple[float, int]: ...
+
+
+def mape(
+    observado: list[float], previsto: list[float], *, com_ignorados: bool = False
+) -> float | tuple[float, int]:
+    """Erro percentual absoluto médio.
+
+    Observado zero acontece no dado real - competências sem licitação para um
+    par órgão/modalidade. Dividir devolveria infinito e contaminaria a média,
+    então o ponto é ignorado; com `com_ignorados=True` a quantidade descartada
+    vem junto, para o descarte nunca ser silencioso.
+
+    Sem nenhum ponto válido o resultado é NaN, não zero: zero significaria
+    previsão perfeita.
+    """
+    _validar(observado, previsto)
+
+    validos = [(o, p) for o, p in zip(observado, previsto) if o != 0.0]
+    ignorados = len(observado) - len(validos)
+
+    if not validos:
+        valor = math.nan
+    else:
+        valor = 100.0 * sum(abs((o - p) / o) for o, p in validos) / len(validos)
+
+    return (valor, ignorados) if com_ignorados else valor
+
+
+def mase(observado: list[float], previsto: list[float], baseline: list[float]) -> float:
+    """Erro do modelo relativo ao do baseline, sobre a mesma janela.
+
+    É a métrica que responde à pergunta do trabalho: menor que 1, o modelo é
+    melhor que o baseline sazonal ingênuo; maior que 1, pior.
+
+    Baseline com erro zero devolve NaN - a razão não se aplica, e o caso
+    existe em séries constantes.
+    """
+    erro_baseline = mae(observado, baseline)
+    if erro_baseline == 0.0:
+        return math.nan
+    return mae(observado, previsto) / erro_baseline
