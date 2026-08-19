@@ -5,6 +5,7 @@ from sqlalchemy import (
     Boolean,
     Date,
     ForeignKey,
+    Index,
     Numeric,
     String,
     Text,
@@ -34,6 +35,15 @@ class Licitacao(Base):
             "codigo_ug",
             "codigo_modalidade",
             name="uq_licitacao_chave_natural",
+        ),
+        # GIN trigram, e não B-tree: a API busca com ILIKE '%termo%', e o
+        # curinga à esquerda impede o uso da árvore. Medido: 1.137 ms de
+        # Parallel Seq Scan contra 10 ms com este índice.
+        Index(
+            "ix_licitacao_objeto_trgm",
+            "objeto",
+            postgresql_using="gin",
+            postgresql_ops={"objeto": "gin_trgm_ops"},
         ),
     )
 
