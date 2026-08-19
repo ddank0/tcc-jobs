@@ -53,6 +53,14 @@ COLUNAS_FEATURES = [
 # cobrem só 0,2% das licitações.
 MINIMO_GRUPO = 30
 
+# CNPJs que a fonte usa como marcador, não como identidade: -11 é "Sigiloso",
+# -2 é "Inválido", ESTRANG* é estrangeiro sem CNPJ. Contam como participantes
+# (existem), mas não alimentam atributo que depende de QUEM é - encontrado na
+# análise qualitativa: o -11 como "vencedor" recorrente dava HHI 0,976 às
+# licitações sigilosas da Polícia Federal, artefato puro de representação.
+CNPJ_SENTINELA = ["-11", "-2"]
+PREFIXO_SENTINELA = "ESTRANG"
+
 
 def montar_features(
     licitacoes: pl.LazyFrame,
@@ -99,7 +107,14 @@ def montar_features(
     # --- participação, sempre pela fonte de verdade (flag_vencedor) ---
     por_lic = participantes.group_by(CHAVE).agg(
         pl.col("cnpj_participante").n_unique().alias("n_participantes"),
-        pl.col("cnpj_participante").filter(pl.col("flag_vencedor")).first().alias("cnpj_vencedor"),
+        pl.col("cnpj_participante")
+        .filter(
+            pl.col("flag_vencedor")
+            & ~pl.col("cnpj_participante").is_in(CNPJ_SENTINELA)
+            & ~pl.col("cnpj_participante").str.starts_with(PREFIXO_SENTINELA)
+        )
+        .first()
+        .alias("cnpj_vencedor"),
         pl.col("flag_vencedor").sum().alias("n_vencedores"),
     )
     mediana_mod = (
@@ -108,8 +123,12 @@ def montar_features(
         .agg(pl.col("n_participantes").median().alias("mediana_part_modalidade"))
     )
 
-    # taxa de vitória do vencedor naquele órgão e HHI do órgão
-    disputas = participantes.join(base.select(CHAVE + ["codigo_orgao"]), on=CHAVE, how="inner")
+    # taxa de vitória do vencedor naquele órgão e HHI do órgão - só com
+    # identidade real: sentinela fora
+    disputas = participantes.filter(
+        ~pl.col("cnpj_participante").is_in(CNPJ_SENTINELA)
+        & ~pl.col("cnpj_participante").str.starts_with(PREFIXO_SENTINELA)
+    ).join(base.select(CHAVE + ["codigo_orgao"]), on=CHAVE, how="inner")
     taxa = disputas.group_by(["codigo_orgao", "cnpj_participante"]).agg(
         pl.col("flag_vencedor").mean().cast(pl.Float64).alias("taxa_vitoria"),
     )

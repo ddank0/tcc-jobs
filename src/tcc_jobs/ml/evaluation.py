@@ -7,7 +7,10 @@ pura e testada por mutação.
 """
 
 import math
+import random
 from collections.abc import Iterator
+
+import polars as pl
 from typing import Literal, overload
 
 
@@ -111,3 +114,52 @@ def mase(observado: list[float], previsto: list[float], baseline: list[float]) -
     if erro_baseline == 0.0:
         return math.nan
     return mae(observado, previsto) / erro_baseline
+
+
+def perturbar(matriz: pl.DataFrame, quantos: int, seed: int) -> tuple[pl.DataFrame, list[int]]:
+    """Perturba `quantos` linhas de forma controlada e devolve os índices.
+
+    Frente 1 da avaliação sem rótulos: planta-se atipicidade conhecida e
+    mede-se a recuperação.
+
+    As perturbações são MULTIPLICATIVAS sobre o valor da própria linha, não
+    valores absolutos. A primeira versão plantava alvos absolutos - taxa de
+    vitória 1,0, HHI 0,7-1,0 - e o experimento revelou que isso é TÍPICO
+    nesta base: a mediana real de taxa_vitoria_vencedor é 1,0, consequência
+    dos 70,3% de licitações com participante único. Plantar o típico e cobrar
+    recuperação mede o gerador, não o detector. Atipicidade só existe em
+    relação ao contexto - a mesma lição das features vale para a avaliação.
+
+    Determinístico por seed.
+    """
+    if quantos > matriz.height:
+        raise ValueError(f"pedidas {quantos} perturbações numa matriz de {matriz.height}")
+
+    sorteio = random.Random(seed)
+    indices = sorted(sorteio.sample(range(matriz.height), quantos))
+
+    linhas = matriz.to_dicts()
+    for i in indices:
+        tipo = sorteio.choice(("valor", "competicao", "sazonal"))
+        if tipo == "valor":
+            fator = sorteio.uniform(10.0, 100.0)
+            linhas[i]["razao_valor_grupo"] = max(linhas[i]["razao_valor_grupo"], 1.0) * fator
+            linhas[i]["razao_item_max"] = max(linhas[i]["razao_item_max"], 1.0) * fator
+        elif tipo == "competicao":
+            # competição desabando EM RELAÇÃO ao próprio contexto: só é
+            # perturbação onde havia competição
+            linhas[i]["razao_participantes_modalidade"] = linhas[i][
+                "razao_participantes_modalidade"
+            ] * sorteio.uniform(0.01, 0.05)
+            linhas[i]["razao_valor_grupo"] = max(
+                linhas[i]["razao_valor_grupo"], 1.0
+            ) * sorteio.uniform(5.0, 20.0)
+        else:
+            linhas[i]["desvio_sazonal_orgao"] = max(
+                linhas[i]["desvio_sazonal_orgao"], 1.0
+            ) * sorteio.uniform(8.0, 20.0)
+            linhas[i]["razao_valor_grupo"] = max(
+                linhas[i]["razao_valor_grupo"], 1.0
+            ) * sorteio.uniform(5.0, 20.0)
+
+    return pl.DataFrame(linhas, schema=matriz.schema), indices

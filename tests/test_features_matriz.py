@@ -177,3 +177,41 @@ def test_sem_nulos_inesperados_nas_flags() -> None:
 
 def test_devolve_lazyframe() -> None:
     assert isinstance(montar_features(_licitacoes(), _itens(), _participantes()), pl.LazyFrame)
+
+
+def test_cnpj_sentinela_nao_gera_taxa_nem_hhi() -> None:
+    """Encontrado na análise qualitativa do top-20: as licitações sigilosas
+    da Polícia Federal dominavam o ranking porque o sentinela -11
+    ("Sigiloso") era contado como vencedor recorrente - HHI 0,976 de puro
+    artefato. Sentinela é ausência de identidade: conta como participante
+    (é um participante real, de identidade oculta), mas não pode alimentar
+    atributo que depende de QUEM é."""
+    lic = pl.LazyFrame(
+        {
+            "numero_licitacao": ["0001", "0002"],
+            "codigo_ug": ["10", "10"],
+            "codigo_modalidade": [5, 5],
+            "codigo_orgao": ["30000", "30000"],
+            "competencia": ["202401", "202401"],
+            "valor": [Decimal("100.0000"), Decimal("200.0000")],
+        }
+    )
+    part = pl.LazyFrame(
+        {
+            "numero_licitacao": ["0001", "0002"],
+            "codigo_ug": ["10", "10"],
+            "codigo_modalidade": [5, 5],
+            "cnpj_participante": ["-11", "-11"],
+            "flag_vencedor": [True, True],
+        }
+    )
+    vazio_i = _itens().filter(pl.col("numero_licitacao") == "nunca")
+
+    m = montar_features(lic, vazio_i, part).collect()
+
+    # participa da contagem...
+    assert m["razao_participantes_modalidade"].null_count() == 0
+    # ...mas não gera identidade: taxa e HHI ficam nulos, e o neutro é
+    # decidido na casca
+    assert m["taxa_vitoria_vencedor"].null_count() == 2
+    assert m["hhi_orgao"].null_count() == 2
