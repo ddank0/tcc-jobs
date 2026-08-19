@@ -34,7 +34,7 @@ def test_devolve_o_horizonte_pedido() -> None:
 def test_intervalo_contem_a_previsao_pontual() -> None:
     p = prever(SERIE, h=6)
 
-    for baixo, ponto, alto in zip(p.inferior, p.pontual, p.superior):
+    for baixo, ponto, alto in zip(p.inferior, p.pontual, p.superior, strict=True):
         assert baixo <= ponto <= alto
 
 

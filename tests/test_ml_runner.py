@@ -117,7 +117,8 @@ def test_execucao_registra_parametros_e_janela(sessao: Session, engine: Engine) 
 
     linha = sessao.execute(
         text(
-            "SELECT algoritmo, parametros_json, janela_treino_inicio, janela_treino_fim FROM execucao_modelo"
+            "SELECT algoritmo, parametros_json, janela_treino_inicio, janela_treino_fim"
+            " FROM execucao_modelo"
         )
     ).one()
     assert linha[0] == "AutoARIMA"

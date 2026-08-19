@@ -155,7 +155,13 @@ def selecionar_series(lf: pl.LazyFrame, minimo_treino: int, h: int) -> Selecao:
         calendario = [
             str(c) for c in Competencia.intervalo(Competencia.de_str(linha["competencia"][0]), fim)
         ]
-        presentes = dict(zip(linha["competencia"], zip(linha["quantidades"], linha["valores"])))
+        presentes = dict(
+            zip(
+                linha["competencia"],
+                zip(linha["quantidades"], linha["valores"], strict=True),
+                strict=True,
+            )
+        )
         cheia = [presentes.get(c, (0.0, 0.0)) for c in calendario]
 
         if len(calendario) < corte:

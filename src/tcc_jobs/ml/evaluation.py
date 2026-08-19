@@ -53,13 +53,15 @@ def _validar(observado: list[float], previsto: list[float]) -> None:
 def mae(observado: list[float], previsto: list[float]) -> float:
     """Erro absoluto médio, na unidade da série."""
     _validar(observado, previsto)
-    return sum(abs(o - p) for o, p in zip(observado, previsto)) / len(observado)
+    return sum(abs(o - p) for o, p in zip(observado, previsto, strict=True)) / len(observado)
 
 
 def rmse(observado: list[float], previsto: list[float]) -> float:
     """Raiz do erro quadrático médio: pesa erro grande mais que o MAE."""
     _validar(observado, previsto)
-    return math.sqrt(sum((o - p) ** 2 for o, p in zip(observado, previsto)) / len(observado))
+    return math.sqrt(
+        sum((o - p) ** 2 for o, p in zip(observado, previsto, strict=True)) / len(observado)
+    )
 
 
 @overload
@@ -85,7 +87,7 @@ def mape(
     """
     _validar(observado, previsto)
 
-    validos = [(o, p) for o, p in zip(observado, previsto) if o != 0.0]
+    validos = [(o, p) for o, p in zip(observado, previsto, strict=True) if o != 0.0]
     ignorados = len(observado) - len(validos)
 
     if not validos:

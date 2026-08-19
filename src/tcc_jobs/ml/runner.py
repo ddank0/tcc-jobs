@@ -106,7 +106,11 @@ def treinar(engine: Engine, agrupamento: str, h: int = 12) -> ResultadoTreino:
                     "ic_superior": a,
                 }
                 for c, p, b, a in zip(
-                    proximas, previsao.pontual, previsao.inferior, previsao.superior
+                    proximas,
+                    previsao.pontual,
+                    previsao.inferior,
+                    previsao.superior,
+                    strict=True,
                 )
             )
 
