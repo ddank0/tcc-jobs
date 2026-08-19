@@ -8,6 +8,7 @@ import logging
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 
 import polars as pl
 from sqlalchemy import Engine, delete, text
@@ -17,7 +18,6 @@ from tcc_jobs.core.competencia import Competencia
 from tcc_jobs.db.copiador import copiar_para_tabela
 from tcc_jobs.db.models import ExecucaoModelo, Previsao
 from tcc_jobs.db.session import criar_sessionmaker
-from tcc_jobs.etl.armazenamento import Armazenamento
 from tcc_jobs.ml.anomaly import contribuicoes, pontuar
 from tcc_jobs.ml.features import CHAVE, COLUNAS_FEATURES, montar_features
 from tcc_jobs.ml.forecast import (
@@ -209,22 +209,21 @@ class ResultadoScore:
     pontuadas: int
 
 
-def pontuar_universo(
-    engine: Engine, armazenamento: Armazenamento, seed: int = 42
-) -> ResultadoScore:
+def pontuar_universo(engine: Engine, silver: Path, seed: int = 42) -> ResultadoScore:
     """Monta a matriz do silver, pontua e grava score_anomalia.
 
-    A matriz vem do silver (74,8M de participantes agregados em ~13s), mas o
-    licitacao_id vem do banco - o silver não o conhece, porque é o banco que o
-    gera. O join é pela chave natural.
+    Recebe o CAMINHO do silver, não o Armazenamento: ml e etl se comunicam
+    por Parquet e por tabelas, nunca por import - contrato verificado pelo
+    import-linter. O licitacao_id vem do banco por join na chave natural,
+    porque é o banco que o gera.
 
     Nulos viram neutros aqui, na casca, com a decisão explícita: razão sem
     referência vira 1 (típico), taxa sem vencedor vira 0. O detector recusa
     nulo de propósito para essa decisão nunca ser implícita.
     """
-    lic = pl.scan_parquet(f"{armazenamento.silver}/licitacao/*.parquet")
-    itens = pl.scan_parquet(f"{armazenamento.silver}/item/*.parquet")
-    part = pl.scan_parquet(f"{armazenamento.silver}/participante/*.parquet")
+    lic = pl.scan_parquet(f"{silver}/licitacao/*.parquet")
+    itens = pl.scan_parquet(f"{silver}/item/*.parquet")
+    part = pl.scan_parquet(f"{silver}/participante/*.parquet")
 
     matriz = montar_features(lic, itens, part).collect()
     if matriz.height == 0:

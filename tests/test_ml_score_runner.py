@@ -27,7 +27,7 @@ def test_grava_score_ranking_e_features(
 ) -> None:
     arm = _base_carregada(tmp_path, engine, criar_cliente)
 
-    resultado = pontuar_universo(engine, arm, seed=42)
+    resultado = pontuar_universo(engine, arm.silver, seed=42)
 
     assert resultado.pontuadas == 30  # a fixture tem 30 licitações
     linhas = sessao.execute(
@@ -41,7 +41,7 @@ def test_ranking_ordena_pelo_score(
     sessao: Session, engine: Engine, tmp_path: Path, criar_cliente: CriarCliente
 ) -> None:
     arm = _base_carregada(tmp_path, engine, criar_cliente)
-    pontuar_universo(engine, arm, seed=42)
+    pontuar_universo(engine, arm.silver, seed=42)
 
     fora_de_ordem = sessao.execute(
         text("""
@@ -57,7 +57,7 @@ def test_features_json_carrega_as_contribuicoes(
     sessao: Session, engine: Engine, tmp_path: Path, criar_cliente: CriarCliente
 ) -> None:
     arm = _base_carregada(tmp_path, engine, criar_cliente)
-    pontuar_universo(engine, arm, seed=42)
+    pontuar_universo(engine, arm.silver, seed=42)
 
     primeiro = sessao.execute(
         text("SELECT features_json FROM score_anomalia WHERE posicao_ranking = 1")
@@ -72,8 +72,8 @@ def test_repontuar_substitui(
 ) -> None:
     arm = _base_carregada(tmp_path, engine, criar_cliente)
 
-    pontuar_universo(engine, arm, seed=42)
-    pontuar_universo(engine, arm, seed=42)
+    pontuar_universo(engine, arm.silver, seed=42)
+    pontuar_universo(engine, arm.silver, seed=42)
 
     assert sessao.execute(text("SELECT count(*) FROM score_anomalia")).scalar() == 30
     assert (
@@ -88,7 +88,7 @@ def test_execucao_registra_seed_e_parametros(
     sessao: Session, engine: Engine, tmp_path: Path, criar_cliente: CriarCliente
 ) -> None:
     arm = _base_carregada(tmp_path, engine, criar_cliente)
-    pontuar_universo(engine, arm, seed=7)
+    pontuar_universo(engine, arm.silver, seed=7)
 
     parametros = sessao.execute(
         text("SELECT parametros_json FROM execucao_modelo WHERE tipo = 'anomaly:licitacao'")

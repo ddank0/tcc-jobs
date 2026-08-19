@@ -9,9 +9,9 @@ pura e testada por mutação.
 import math
 import random
 from collections.abc import Iterator
+from typing import Literal, overload
 
 import polars as pl
-from typing import Literal, overload
 
 
 def janelas(n_pontos: int, h: int, minimo_treino: int) -> Iterator[tuple[slice, slice]]:

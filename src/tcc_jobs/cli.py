@@ -142,11 +142,10 @@ def score(
     """Calcula scores de atipicidade e grava score_anomalia."""
     from tcc_jobs.core.config import settings
     from tcc_jobs.db.session import criar_engine
-    from tcc_jobs.etl.armazenamento import Armazenamento
     from tcc_jobs.ml.runner import pontuar_universo
 
     resultado = pontuar_universo(
-        criar_engine(settings.database_url), Armazenamento(settings.data_dir), seed=seed
+        criar_engine(settings.database_url), settings.data_dir / "silver", seed=seed
     )
     typer.echo(f"{resultado.pontuadas} licitações pontuadas")
 
