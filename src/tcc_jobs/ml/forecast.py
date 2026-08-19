@@ -84,9 +84,16 @@ def prever(serie: list[float], h: int, m: int = 12) -> Previsao:
     # que não expõe indexação.
     resultado = cast(pd.DataFrame, modelo.predict(h=h, level=[NIVEL_INTERVALO]))
 
-    pontual = [float(v) for v in resultado["AutoARIMA"]]
-    inferior = [float(v) for v in resultado[f"AutoARIMA-lo-{NIVEL_INTERVALO}"]]
-    superior = [float(v) for v in resultado[f"AutoARIMA-hi-{NIVEL_INTERVALO}"]]
+    # Truncar em zero, nos três: o domínio é contagem e valor, e não existe
+    # -1.312 licitações. O ARIMA é irrestrito e extrapola queda para baixo de
+    # zero - na primeira rodada persistida, 512 das 3.492 previsões de
+    # quantidade vieram negativas. Quando a previsão inteira é negativa o
+    # intervalo degenera para [0, 0], que é a leitura honesta de
+    # "essencialmente zero" - truncar só o pontual quebraria a invariante
+    # inferior <= pontual <= superior.
+    pontual = [max(0.0, float(v)) for v in resultado["AutoARIMA"]]
+    inferior = [max(0.0, float(v)) for v in resultado[f"AutoARIMA-lo-{NIVEL_INTERVALO}"]]
+    superior = [max(0.0, float(v)) for v in resultado[f"AutoARIMA-hi-{NIVEL_INTERVALO}"]]
 
     return Previsao(pontual=pontual, inferior=inferior, superior=superior)
 

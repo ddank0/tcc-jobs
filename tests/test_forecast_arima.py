@@ -73,3 +73,23 @@ def test_previsao_e_imutavel() -> None:
     assert isinstance(p, Previsao)
     with pytest.raises(AttributeError):
         p.pontual = []  # type: ignore[misc]
+
+
+def test_previsao_de_serie_nao_negativa_nao_fica_negativa() -> None:
+    """O domínio é contagem e valor - não existe -1.312 licitações.
+
+    O ARIMA é irrestrito e extrapola tendência de queda para baixo de zero:
+    encontrado na revisão, 512 das 3.492 previsões de quantidade persistidas
+    eram negativas. O envelope trunca em zero, e a decisão fica aqui, na
+    fronteira, documentada - não espalhada por quem consome.
+    """
+    decrescente = [float(v) for v in range(96, 0, -2)]  # 48 pontos caindo
+
+    p = prever(decrescente, h=12)
+
+    assert all(v >= 0.0 for v in p.pontual)
+    assert all(v >= 0.0 for v in p.inferior)
+    # o superior também trunca em zero - senão, previsão toda negativa
+    # deixaria pontual (0) acima do superior e quebraria a invariante
+    for baixo, ponto, alto in zip(p.inferior, p.pontual, p.superior, strict=True):
+        assert baixo <= ponto <= alto
