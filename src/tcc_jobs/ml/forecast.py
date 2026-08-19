@@ -12,6 +12,8 @@ import polars as pl
 from statsforecast import StatsForecast
 from statsforecast.models import AutoARIMA
 
+from tcc_jobs.core.competencia import Competencia
+
 # Nível do intervalo de previsão, em percentual.
 NIVEL_INTERVALO = 95
 
@@ -119,35 +121,59 @@ def selecionar_series(lf: pl.LazyFrame, minimo_treino: int, h: int) -> Selecao:
 
     Elegível é a série com pelo menos `minimo_treino + h` pontos: menos que
     isso não produz nem uma janela de backtesting válida.
+
+    Mês sem linha vira zero, não buraco: ausência em serie_mensal significa
+    zero licitações naquele mês. Medido na base real: 84,9% das séries têm
+    lacuna, somando 51.950 meses - sem o preenchimento, a posição na lista
+    deixa de corresponder ao mês do calendário e a sazonalidade m=12
+    desalinha. Cada série é preenchida do seu primeiro mês até a última
+    competência do universo, para todas partirem do mesmo presente.
     """
     corte = minimo_treino + h
 
+    materializado = lf.collect()
+    if materializado.height == 0:
+        return Selecao(series=[], elegiveis=0, descartadas=0)
+
+    fim = Competencia.de_str(str(materializado["competencia"].max()))
+
     df = (
-        lf.sort("competencia")
+        materializado.lazy()
+        .sort("competencia")
         .group_by(["codigo_orgao", "codigo_modalidade"], maintain_order=True)
         .agg(
             pl.col("competencia"),
             pl.col("quantidade_licitacoes").cast(pl.Float64).alias("quantidades"),
             pl.col("valor_total").cast(pl.Float64).alias("valores"),
-            pl.len().alias("meses"),
         )
         .collect()
     )
 
-    series = [
-        SerieTemporal(
-            codigo_orgao=str(linha["codigo_orgao"]),
-            codigo_modalidade=int(linha["codigo_modalidade"]),
-            competencias=list(linha["competencia"]),
-            quantidades=list(linha["quantidades"]),
-            valores=list(linha["valores"]),
+    series: list[SerieTemporal] = []
+    descartadas = 0
+    for linha in df.iter_rows(named=True):
+        calendario = [
+            str(c) for c in Competencia.intervalo(Competencia.de_str(linha["competencia"][0]), fim)
+        ]
+        presentes = dict(zip(linha["competencia"], zip(linha["quantidades"], linha["valores"])))
+        cheia = [presentes.get(c, (0.0, 0.0)) for c in calendario]
+
+        if len(calendario) < corte:
+            descartadas += 1
+            continue
+
+        series.append(
+            SerieTemporal(
+                codigo_orgao=str(linha["codigo_orgao"]),
+                codigo_modalidade=int(linha["codigo_modalidade"]),
+                competencias=calendario,
+                quantidades=[q for q, _ in cheia],
+                valores=[v for _, v in cheia],
+            )
         )
-        for linha in df.iter_rows(named=True)
-        if linha["meses"] >= corte
-    ]
 
     return Selecao(
         series=series,
         elegiveis=len(series),
-        descartadas=df.height - len(series),
+        descartadas=descartadas,
     )
