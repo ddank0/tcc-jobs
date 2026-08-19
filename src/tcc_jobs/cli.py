@@ -114,9 +114,25 @@ def aggregate() -> None:
 @app.command()
 def train(
     serie: str = typer.Option("orgao", help="Agrupamento: orgao, modalidade ou global"),
+    horizonte: int = typer.Option(12, help="Meses previstos à frente"),
 ) -> None:
     """Treina os modelos de previsão e grava previsao."""
-    typer.echo(f"train --serie {serie} - ainda não implementado")
+    from tcc_jobs.core.config import settings
+    from tcc_jobs.db.session import criar_engine
+    from tcc_jobs.ml.runner import AGRUPAMENTOS, treinar
+
+    if serie not in AGRUPAMENTOS:
+        raise typer.BadParameter(f"agrupamento deve ser um de {AGRUPAMENTOS}")
+
+    resultado = treinar(criar_engine(settings.database_url), agrupamento=serie, h=horizonte)
+
+    typer.echo(
+        f"{resultado.series_treinadas} séries treinadas, "
+        f"{resultado.series_descartadas} descartadas, "
+        f"{resultado.previsoes_gravadas} previsões gravadas"
+    )
+    if resultado.series_descartadas:
+        typer.echo(f"  descartadas por história insuficiente (< {24 + horizonte} meses)", err=True)
 
 
 @app.command()

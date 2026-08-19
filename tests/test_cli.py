@@ -66,3 +66,9 @@ def test_load_avisa_sobre_o_lock_exclusivo() -> None:
     resultado = runner.invoke(app, ["load", "--de", "2013", "--ate", "202404", "--carga-inicial"])
 
     assert "fora de uso" in _sem_cor(resultado.output)
+
+
+def test_train_rejeita_agrupamento_invalido() -> None:
+    resultado = runner.invoke(app, ["train", "--serie", "cnpj"])
+
+    assert resultado.exit_code != 0
