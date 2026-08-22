@@ -1,7 +1,7 @@
 """Detector de atipicidade. Núcleo funcional.
 
 O vocabulário é deliberado em todo o módulo: score e atipicidade, nunca
-termos que sugiram irregularidade - restrição de produto, não de estilo.
+termos de acusação - restrição de produto, não de estilo.
 """
 
 from dataclasses import dataclass

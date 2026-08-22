@@ -248,7 +248,7 @@ def pontuar_universo(engine: Engine, silver: Path, seed: int = 42) -> ResultadoS
 
     with engine.begin() as conn:
         ids = pl.read_database(
-            "SELECT id, numero_licitacao, codigo_ug, codigo_modalidade FROM licitacao",
+            "SELECT id, numero_licitacao, codigo_ug, codigo_modalidade, competencia FROM licitacao",
             connection=conn,
         )
     com_id = matriz.with_columns(pl.Series("score", scores.valores)).join(
@@ -333,6 +333,7 @@ def _persistir_scores(
     para_copiar = ordenado.select(
         pl.lit(execucao_id).alias("execucao_id"),
         pl.col("id").alias("licitacao_id"),
+        pl.col("competencia"),
         pl.col("score").round(6),
         pl.col("posicao").alias("posicao_ranking"),
     ).with_columns(pl.Series("features_json", features_json))
@@ -342,6 +343,13 @@ def _persistir_scores(
             conn,
             "score_anomalia",
             para_copiar,
-            ["execucao_id", "licitacao_id", "score", "posicao_ranking", "features_json"],
+            [
+                "execucao_id",
+                "licitacao_id",
+                "competencia",
+                "score",
+                "posicao_ranking",
+                "features_json",
+            ],
         )
     return total

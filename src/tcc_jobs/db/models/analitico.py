@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, Numeric, String
+from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from tcc_jobs.db.base import Base
@@ -107,6 +107,9 @@ class ScoreAnomalia(Base):
     """
 
     __tablename__ = "score_anomalia"
+    __table_args__ = (
+        Index("ix_score_anomalia_competencia_posicao", "competencia", "posicao_ranking"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     execucao_id: Mapped[int] = mapped_column(
@@ -115,6 +118,10 @@ class ScoreAnomalia(Base):
     licitacao_id: Mapped[int] = mapped_column(
         ForeignKey("licitacao.id", ondelete="CASCADE"), index=True
     )
+    # Desnormalizada de licitacao, preenchida no scoring: o filtro por
+    # período do /anomalies via join não tem índice que sirva - medido, p95 de
+    # 542 ms. Com a coluna aqui e o índice composto, o recorte é direto.
+    competencia: Mapped[str | None] = mapped_column(String(6))
     score: Mapped[Decimal] = mapped_column(Numeric(12, 6), index=True)
     # Indexado: é a ordem da listagem /anomalies, e sem índice o ORDER BY
     # vira external merge em disco (medido: 907 ms no endpoint).

@@ -210,4 +210,9 @@ def montar_features(
         .join(sazonal, on=["codigo_orgao", "competencia"], how="left")
         .with_columns(pl.col("contem_item_implausivel").fill_null(False))
         .select(CHAVE + COLUNAS_FEATURES)
+        # Ordem determinística: group_by e join do Polars não garantem ordem,
+        # e o IsolationForest sorteia subamostras por índice - sem isto, dois
+        # scores com a mesma seed davam rankings diferentes. Encontrado na
+        # revisão comparando o recomputado com o persistido.
+        .sort(CHAVE)
     )

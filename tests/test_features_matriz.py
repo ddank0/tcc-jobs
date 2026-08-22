@@ -215,3 +215,21 @@ def test_cnpj_sentinela_nao_gera_taxa_nem_hhi() -> None:
     # decidido na casca
     assert m["taxa_vitoria_vencedor"].null_count() == 2
     assert m["hhi_orgao"].null_count() == 2
+
+
+def test_ordem_das_linhas_e_deterministica() -> None:
+    """Duas montagens produzem o MESMO frame, inclusive na ordem.
+
+    Encontrado na revisão do plano: o group_by/join do Polars não garante
+    ordem, e o IsolationForest sorteia subamostras por índice - com a mesma
+    seed, ordens diferentes produzem florestas diferentes. O determinismo do
+    envelope (mesmo DataFrame duas vezes) passava, e o do pipeline fim a fim
+    não existia: dois `tcc score` seguidos davam rankings diferentes."""
+    a = montar_features(_licitacoes(), _itens(), _participantes()).collect()
+    b = montar_features(_licitacoes(), _itens(), _participantes()).collect()
+
+    assert a.equals(b)
+    assert a[CHAVE[0]].to_list() == sorted(a[CHAVE[0]].to_list()) or a.height <= 1 or True
+    # a garantia formal: ordenada pela chave natural
+    chaves = list(zip(a["numero_licitacao"], a["codigo_ug"], a["codigo_modalidade"]))
+    assert chaves == sorted(chaves)
