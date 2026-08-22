@@ -229,7 +229,6 @@ def test_ordem_das_linhas_e_deterministica() -> None:
     b = montar_features(_licitacoes(), _itens(), _participantes()).collect()
 
     assert a.equals(b)
-    assert a[CHAVE[0]].to_list() == sorted(a[CHAVE[0]].to_list()) or a.height <= 1 or True
     # a garantia formal: ordenada pela chave natural
-    chaves = list(zip(a["numero_licitacao"], a["codigo_ug"], a["codigo_modalidade"]))
+    chaves = list(zip(a["numero_licitacao"], a["codigo_ug"], a["codigo_modalidade"], strict=True))
     assert chaves == sorted(chaves)
